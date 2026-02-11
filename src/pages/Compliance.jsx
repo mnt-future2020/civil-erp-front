@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   FileText, 
   IndianRupee, 
@@ -57,11 +57,7 @@ export default function Compliance() {
     sold_units: '0'
   });
 
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       const [gstRes, reraRes, projectsRes] = await Promise.all([
         api.get('/gst-returns'),
@@ -77,7 +73,11 @@ export default function Compliance() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   const handleGstSubmit = async (e) => {
     e.preventDefault();
