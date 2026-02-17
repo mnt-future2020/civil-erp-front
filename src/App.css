@@ -1,0 +1,211 @@
+/* App specific styles - extends index.css */
+
+/* Main layout */
+.app-layout {
+    @apply min-h-screen bg-background;
+}
+
+.main-content {
+    @apply ml-0 lg:ml-64 min-h-screen;
+    transition: margin-left 0.3s ease;
+}
+
+.main-content.sidebar-open {
+    @apply ml-64;
+}
+
+/* Page container */
+.page-container {
+    @apply p-4 md:p-6 lg:p-8 max-w-[1600px] mx-auto;
+}
+
+/* Page header */
+.page-header {
+    @apply mb-6 flex flex-col gap-2 md:flex-row md:items-center md:justify-between;
+}
+
+.page-title {
+    @apply text-2xl md:text-3xl font-bold tracking-tight;
+}
+
+.page-subtitle {
+    @apply text-muted-foreground text-sm md:text-base;
+}
+
+/* Dashboard specific */
+.dashboard-greeting {
+    @apply text-xl md:text-2xl font-semibold mb-1;
+}
+
+.dashboard-date {
+    @apply text-muted-foreground text-sm;
+}
+
+/* Top bar */
+.topbar {
+    @apply sticky top-0 z-30 h-16 border-b bg-background/95 backdrop-blur-sm;
+}
+
+.topbar-content {
+    @apply flex items-center justify-between h-full px-4 md:px-6;
+}
+
+/* Search input */
+.search-input {
+    @apply w-full max-w-md pl-10 pr-4 py-2 rounded-sm border bg-muted/50;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.search-input:focus {
+    @apply bg-background border-accent outline-none ring-2 ring-accent/20;
+}
+
+/* Action buttons */
+.action-btn {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-sm font-semibold text-sm uppercase tracking-wide;
+    transition: background-color 0.15s ease, transform 0.1s ease;
+}
+
+.action-btn:active {
+    transform: scale(0.98);
+}
+
+.action-btn-primary {
+    @apply bg-primary text-primary-foreground hover:bg-primary/90;
+}
+
+.action-btn-secondary {
+    @apply bg-secondary text-secondary-foreground hover:bg-secondary/90;
+}
+
+.action-btn-accent {
+    @apply bg-accent text-accent-foreground hover:bg-accent/90;
+}
+
+.action-btn-outline {
+    @apply border-2 border-border bg-transparent hover:bg-muted;
+}
+
+/* Modal/Dialog overlay */
+.modal-overlay {
+    @apply fixed inset-0 bg-black/60 backdrop-blur-sm z-50;
+}
+
+/* Card hover effect */
+.card-hover {
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.card-hover:hover {
+    transform: translateY(-2px);
+    @apply shadow-lg;
+}
+
+/* Empty state */
+.empty-state {
+    @apply flex flex-col items-center justify-center py-12 text-center;
+}
+
+.empty-state-icon {
+    @apply w-16 h-16 text-muted-foreground/50 mb-4;
+}
+
+.empty-state-title {
+    @apply text-lg font-semibold text-muted-foreground mb-2;
+}
+
+.empty-state-description {
+    @apply text-sm text-muted-foreground max-w-md;
+}
+
+/* Tab navigation */
+.tab-nav {
+    @apply flex border-b;
+}
+
+.tab-item {
+    @apply px-4 py-3 text-sm font-medium text-muted-foreground border-b-2 border-transparent;
+    transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.tab-item:hover {
+    @apply text-foreground;
+}
+
+.tab-item.active {
+    @apply text-accent border-accent;
+}
+
+/* Progress indicator */
+.progress-bar {
+    @apply h-2 bg-muted rounded-sm overflow-hidden;
+}
+
+.progress-fill {
+    @apply h-full bg-accent rounded-sm;
+    transition: width 0.3s ease;
+}
+
+/* Avatar */
+.avatar-sm { @apply w-8 h-8; }
+.avatar-md { @apply w-10 h-10; }
+.avatar-lg { @apply w-12 h-12; }
+
+/* Icon button */
+.icon-btn {
+    @apply p-2 rounded-sm text-muted-foreground;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.icon-btn:hover {
+    @apply bg-muted text-foreground;
+}
+
+/* Dropdown menu */
+.dropdown-menu {
+    @apply absolute right-0 mt-2 w-56 rounded-sm border bg-popover shadow-lg z-50;
+    animation: slide-up 0.15s ease-out;
+}
+
+.dropdown-item {
+    @apply flex items-center gap-2 px-4 py-2 text-sm;
+    transition: background-color 0.1s ease;
+}
+
+.dropdown-item:hover {
+    @apply bg-muted;
+}
+
+/* Notification badge */
+.notification-badge {
+    @apply absolute -top-1 -right-1 w-5 h-5 flex items-center justify-center text-xs font-bold rounded-full bg-destructive text-destructive-foreground;
+}
+
+/* Mobile menu button */
+.mobile-menu-btn {
+    @apply lg:hidden p-2 rounded-sm;
+}
+
+/* Responsive utilities */
+@media (max-width: 1024px) {
+    .hide-on-mobile {
+        display: none;
+    }
+}
+
+@media (min-width: 1025px) {
+    .show-on-mobile-only {
+        display: none;
+    }
+}
+
+/* Print styles */
+@media print {
+    .no-print {
+        display: none !important;
+    }
+    
+    .main-content {
+        margin-left: 0 !important;
+    }
+}
