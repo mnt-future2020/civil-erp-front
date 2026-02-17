@@ -500,6 +500,8 @@ export default function ProjectDetail() {
                           }
                         </div>
                       )}
+                      {d.sqft_completed != null && d.sqft_completed !== '' && <div><span className="text-muted-foreground font-medium">Area Completed:</span> <span>{d.sqft_completed} sq.ft</span></div>}
+                      {d.tomorrow_schedule && <div><span className="text-muted-foreground font-medium">Tomorrow's Schedule:</span> <span>{d.tomorrow_schedule}</span></div>}
                       {d.issues && <div className="flex items-start gap-1 text-amber-600"><AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" /><span>{d.issues}</span></div>}
                       {d.notes && <div className="text-muted-foreground italic">{d.notes}</div>}
                     </div>
@@ -848,7 +850,7 @@ function PickerSection({ label, items, addedItems, itemKey, nameKey, subKey, sub
 }
 
 function DprDialog({ open, onClose, onSubmit, project, api }) {
-  const emptyForm = { date: new Date().toISOString().slice(0, 10), weather: '', work_done: '', issues: '', notes: '' };
+  const emptyForm = { date: new Date().toISOString().slice(0, 10), weather: '', work_done: '', issues: '', notes: '', sqft_completed: '', tomorrow_schedule: '' };
   const [form, setForm] = useState(emptyForm);
   const [availableLabor, setAvailableLabor] = useState([]);
   const [availableInventory, setAvailableInventory] = useState([]);
@@ -957,6 +959,16 @@ function DprDialog({ open, onClose, onSubmit, project, api }) {
             <div className="space-y-1.5">
               <Label className="text-xs">Notes</Label>
               <Input value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="Additional notes..." className="rounded-sm text-sm" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Completed Area Today (sq.ft)</Label>
+              <Input type="number" min="0" step="0.01" value={form.sqft_completed} onChange={e => setForm(f => ({ ...f, sqft_completed: e.target.value }))} placeholder="e.g. 250" className="rounded-sm text-sm" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Tomorrow's Schedule</Label>
+              <Input value={form.tomorrow_schedule} onChange={e => setForm(f => ({ ...f, tomorrow_schedule: e.target.value }))} placeholder="Plan for tomorrow..." className="rounded-sm text-sm" />
             </div>
           </div>
           <div className="flex justify-end gap-2 pt-2">
