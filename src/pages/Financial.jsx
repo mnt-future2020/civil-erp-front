@@ -81,7 +81,7 @@ export default function Financial() {
     setFormLoading(true);
     try {
       await api.post('/billing', {
-        ...billingForm, amount: parseFloat(billingForm.amount), gst_rate: parseFloat(billingForm.gst_rate)
+        ...billingForm, amount: parseFloat(billingForm.amount), gst_rate: billingForm.gst_rate === 'N/A' ? 0 : parseFloat(billingForm.gst_rate)
       });
       toast.success('Bill created');
       setIsBillingDialogOpen(false);
@@ -239,7 +239,10 @@ export default function Financial() {
                     <div className="space-y-2"><Label>GST Rate %</Label>
                       <Select value={billingForm.gst_rate} onValueChange={(v) => setBillingForm(f => ({ ...f, gst_rate: v }))}>
                         <SelectTrigger className="rounded-sm"><SelectValue /></SelectTrigger>
-                        <SelectContent>{[0, 5, 12, 18, 28].map(r => <SelectItem key={r} value={String(r)}>{r}%</SelectItem>)}</SelectContent>
+                        <SelectContent>
+                          <SelectItem value="N/A">N/A</SelectItem>
+                          {[5, 12, 18, 28].map(r => <SelectItem key={r} value={String(r)}>{r}%</SelectItem>)}
+                        </SelectContent>
                       </Select>
                     </div>
                     <div className="space-y-2"><Label>Bill Type</Label>
@@ -256,8 +259,8 @@ export default function Financial() {
                   {billingForm.amount && (
                     <div className="p-3 bg-muted/50 rounded-sm text-sm space-y-1">
                       <div className="flex justify-between"><span className="text-muted-foreground">Base Amount</span><span className="font-mono">{formatCurrency(parseFloat(billingForm.amount) || 0)}</span></div>
-                      <div className="flex justify-between"><span className="text-muted-foreground">GST ({billingForm.gst_rate}%)</span><span className="font-mono">{formatCurrency((parseFloat(billingForm.amount) || 0) * parseFloat(billingForm.gst_rate) / 100)}</span></div>
-                      <div className="flex justify-between font-bold border-t pt-1"><span>Total</span><span className="font-mono">{formatCurrency((parseFloat(billingForm.amount) || 0) * (1 + parseFloat(billingForm.gst_rate) / 100))}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">GST ({billingForm.gst_rate === 'N/A' ? 'N/A' : `${billingForm.gst_rate}%`})</span><span className="font-mono">{formatCurrency((parseFloat(billingForm.amount) || 0) * (billingForm.gst_rate === 'N/A' ? 0 : parseFloat(billingForm.gst_rate)) / 100)}</span></div>
+                      <div className="flex justify-between font-bold border-t pt-1"><span>Total</span><span className="font-mono">{formatCurrency((parseFloat(billingForm.amount) || 0) * (1 + (billingForm.gst_rate === 'N/A' ? 0 : parseFloat(billingForm.gst_rate)) / 100))}</span></div>
                     </div>
                   )}
                   <div className="flex justify-end gap-3 pt-2">
@@ -551,7 +554,7 @@ function BillDetail({ bill, projectName, onBack, onStatusChange, onDelete }) {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
               {[
                 ['Type', bill.bill_type?.charAt(0).toUpperCase() + bill.bill_type?.slice(1)],
-                ['GST Rate', `${bill.gst_rate}%`],
+                ['GST Rate', bill.gst_rate === 0 || bill.gst_rate == null ? 'N/A' : `${bill.gst_rate}%`],
                 ['Created', formatDate(bill.created_at)],
                 ['Bill Date', formatDate(bill.bill_date)],
               ].map(([k, v]) => (
