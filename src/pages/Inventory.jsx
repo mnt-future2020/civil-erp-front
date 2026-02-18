@@ -12,13 +12,20 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { toast } from 'sonner';
 import {
   Package, Plus, Search, Edit2, Trash2, AlertTriangle,
-  PackageX, TrendingUp, IndianRupee, RefreshCw, Layers, ArrowRightLeft, Loader2
+  PackageX, TrendingUp, IndianRupee, RefreshCw, Layers, ArrowRightLeft, Loader2, Wrench
 } from 'lucide-react';
 import { formatCurrency } from '../lib/utils';
 import { DeleteConfirmationDialog } from '../components/DeleteConfirmationDialog';
 
 
 const DEFAULT_CATEGORIES = ['Steel', 'Cement', 'Aggregates', 'Sand', 'Bricks', 'Tiles', 'Paint', 'Plumbing', 'Electrical', 'Timber', 'Hardware', 'Glass', 'Waterproofing', 'Formwork'];
+const EQUIPMENT_CATEGORIES = ['Machine', 'Vehicle', 'Power Tool', 'Hand Tool', 'Safety Equipment', 'Survey Instrument', 'Scaffolding', 'Other'];
+const EQUIPMENT_STATUS_CONFIG = {
+  available:    { label: 'Available',    className: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
+  in_use:       { label: 'In Use',       className: 'bg-blue-100 text-blue-700 border-blue-200' },
+  maintenance:  { label: 'Maintenance',  className: 'bg-amber-100 text-amber-700 border-amber-200' },
+  retired:      { label: 'Retired',      className: 'bg-slate-100 text-slate-500 border-slate-200' },
+};
 
 function loadCategories() {
   try {
@@ -31,6 +38,17 @@ function saveCategories(cats) {
   localStorage.setItem('inv_categories', JSON.stringify(cats));
 }
 
+function loadEquipmentCategories() {
+  try {
+    const saved = localStorage.getItem('equip_categories');
+    return saved ? JSON.parse(saved) : EQUIPMENT_CATEGORIES;
+  } catch { return EQUIPMENT_CATEGORIES; }
+}
+
+function saveEquipmentCategories(cats) {
+  localStorage.setItem('equip_categories', JSON.stringify(cats));
+}
+
 const UNITS = ['MT', 'Kg', 'Bags', 'Nos', 'Sqft', 'Sqm', 'Rft', 'Rmt', 'Ltr', 'Cum', 'Sets', 'Rolls'];
 
 const STATUS_CONFIG = {
@@ -40,9 +58,11 @@ const STATUS_CONFIG = {
 };
 
 const EMPTY_FORM = {
+  item_type: 'material',
   project_id: '', item_name: '', category: 'Cement', unit: 'Bags',
   quantity: '', minimum_quantity: '', unit_price: '', gst_rate: 18,
-  hsn_code: '', location: '', notes: ''
+  hsn_code: '', location: '', notes: '',
+  serial_number: '', condition: 'good', purchase_date: '', equipment_status: 'available',
 };
 
 export default function Inventory() {
@@ -57,6 +77,9 @@ export default function Inventory() {
   const [inventoryCategories, setInventoryCategories] = useState(loadCategories);
   const [newCatInput, setNewCatInput] = useState('');
   const [catToDelete, setCatToDelete] = useState(null);
+  const [equipmentCategories, setEquipmentCategories] = useState(loadEquipmentCategories);
+  const [newEquipCatInput, setNewEquipCatInput] = useState('');
+  const [equipCatToDelete, setEquipCatToDelete] = useState(null);
 
   const addCategory = (name) => {
     const trimmed = name.trim();
@@ -75,7 +98,25 @@ export default function Inventory() {
     if (itemForm.category === cat) setItemForm(f => ({ ...f, category: updated[0] || '' }));
   };
 
+  const addEquipmentCategory = (name) => {
+    const trimmed = name.trim();
+    if (!trimmed || equipmentCategories.includes(trimmed)) return;
+    const updated = [...equipmentCategories, trimmed];
+    setEquipmentCategories(updated);
+    saveEquipmentCategories(updated);
+    setItemForm(f => ({ ...f, category: trimmed }));
+    setNewEquipCatInput('');
+  };
+
+  const deleteEquipmentCategory = (cat) => {
+    const updated = equipmentCategories.filter(c => c !== cat);
+    setEquipmentCategories(updated);
+    saveEquipmentCategories(updated);
+    if (itemForm.category === cat) setItemForm(f => ({ ...f, category: updated[0] || '' }));
+  };
+
   // Filters
+  const [inventoryTab, setInventoryTab] = useState('material'); // 'material' | 'equipment'
   const [selectedProject, setSelectedProject] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
@@ -143,22 +184,28 @@ export default function Inventory() {
 
   const filteredItems = useMemo(() => {
     return items.filter(item => {
+      const matchesType = (item.item_type || 'material') === inventoryTab;
       const matchesSearch = !searchQuery ||
         item.item_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         item.category?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         item.location?.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesCategory = categoryFilter === 'all' || item.category === categoryFilter;
-      const matchesStatus = statusFilter === 'all' || item.status === statusFilter;
-      return matchesSearch && matchesCategory && matchesStatus;
+      const itemStatus = (item.item_type === 'equipment') ? item.equipment_status : item.status;
+      const matchesStatus = statusFilter === 'all' || itemStatus === statusFilter;
+      return matchesType && matchesSearch && matchesCategory && matchesStatus;
     });
-  }, [items, searchQuery, categoryFilter, statusFilter]);
+  }, [items, inventoryTab, searchQuery, categoryFilter, statusFilter]);
 
   // ── CRUD ─────────────────────────────────────────────────
 
   const openCreateDialog = () => {
     setSelectedItem(null);
+    const isEquip = inventoryTab === 'equipment';
     setItemForm({
       ...EMPTY_FORM,
+      item_type: inventoryTab,
+      category: isEquip ? (equipmentCategories[0] || 'Machine') : (inventoryCategories[0] || 'Cement'),
+      unit: isEquip ? '' : 'Bags',
       project_id: selectedProject !== 'all' ? selectedProject : '',
     });
     setIsItemDialogOpen(true);
@@ -167,6 +214,7 @@ export default function Inventory() {
   const openEditDialog = (item) => {
     setSelectedItem(item);
     setItemForm({
+      item_type: item.item_type || 'material',
       project_id: item.project_id || '',
       item_name: item.item_name || '',
       category: item.category || 'Cement',
@@ -176,6 +224,10 @@ export default function Inventory() {
       unit_price: item.unit_price ?? '',
       gst_rate: item.gst_rate ?? 18,
       hsn_code: item.hsn_code || '',
+      serial_number: item.serial_number || '',
+      condition: item.condition || 'good',
+      purchase_date: item.purchase_date || '',
+      equipment_status: item.equipment_status || 'available',
       location: item.location || '',
       notes: item.notes || '',
     });
@@ -204,7 +256,8 @@ export default function Inventory() {
       fetchItems();
       fetchDashboard();
     } catch (err) {
-      toast.error(err.response?.data?.detail || 'Failed to save item');
+      const d = err.response?.data?.detail;
+      toast.error(Array.isArray(d) ? d.map(e => e.msg).join(', ') : (d || 'Failed to save item'));
     } finally {
       setFormLoading(false);
     }
@@ -312,7 +365,7 @@ export default function Inventory() {
           <p className="text-sm text-muted-foreground mt-0.5">Track site materials and stock levels per project</p>
         </div>
         {hasPermission('inventory', 'create') && (
-          <Button onClick={openCreateDialog} className="gap-2">
+          <Button onClick={openCreateDialog} className="gap-2 bg-accent hover:bg-accent/90 text-white border-accent">
             <Plus className="w-4 h-4" /> Add Item
           </Button>
         )}
@@ -400,6 +453,24 @@ export default function Inventory() {
       )}
 
 
+      {/* Material / Equipment Tabs */}
+      <div className="flex gap-2">
+        <button
+          onClick={() => { setInventoryTab('material'); setCategoryFilter('all'); setStatusFilter('all'); }}
+          className={`flex items-center gap-2 px-4 py-2 rounded-sm text-sm font-medium border transition-colors ${inventoryTab === 'material' ? 'bg-accent text-white border-accent' : 'bg-background border-border hover:bg-muted'}`}
+        >
+          <Package className="w-4 h-4" />
+          Materials ({items.filter(i => (i.item_type || 'material') === 'material').length})
+        </button>
+        <button
+          onClick={() => { setInventoryTab('equipment'); setCategoryFilter('all'); setStatusFilter('all'); }}
+          className={`flex items-center gap-2 px-4 py-2 rounded-sm text-sm font-medium border transition-colors ${inventoryTab === 'equipment' ? 'bg-accent text-white border-accent' : 'bg-background border-border hover:bg-muted'}`}
+        >
+          <Wrench className="w-4 h-4" />
+          Equipment ({items.filter(i => i.item_type === 'equipment').length})
+        </button>
+      </div>
+
       {/* Filters + Table */}
       <Card>
         <CardHeader className="pb-3">
@@ -433,9 +504,16 @@ export default function Inventory() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Statuses</SelectItem>
-                <SelectItem value="in_stock">In Stock</SelectItem>
-                <SelectItem value="low_stock">Low Stock</SelectItem>
-                <SelectItem value="out_of_stock">Out of Stock</SelectItem>
+                {inventoryTab === 'material' ? <>
+                  <SelectItem value="in_stock">In Stock</SelectItem>
+                  <SelectItem value="low_stock">Low Stock</SelectItem>
+                  <SelectItem value="out_of_stock">Out of Stock</SelectItem>
+                </> : <>
+                  <SelectItem value="available">Available</SelectItem>
+                  <SelectItem value="in_use">In Use</SelectItem>
+                  <SelectItem value="maintenance">Maintenance</SelectItem>
+                  <SelectItem value="retired">Retired</SelectItem>
+                </>}
               </SelectContent>
             </Select>
           </div>
@@ -461,20 +539,30 @@ export default function Inventory() {
                     <TableHead>Category</TableHead>
                     <TableHead>Project</TableHead>
                     <TableHead>Location</TableHead>
-                    <TableHead className="text-right">Qty</TableHead>
-                    <TableHead className="text-right">Min Qty</TableHead>
-                    <TableHead className="text-right">Unit Price</TableHead>
-                    <TableHead className="text-right">Total Value</TableHead>
-                    <TableHead>HSN</TableHead>
+                    {inventoryTab === 'material' ? <>
+                      <TableHead className="text-right">Qty</TableHead>
+                      <TableHead className="text-right">Min Qty</TableHead>
+                      <TableHead className="text-right">Unit Price</TableHead>
+                      <TableHead className="text-right">Total Value</TableHead>
+                      <TableHead>HSN</TableHead>
+                    </> : <>
+                      <TableHead className="text-right">Count</TableHead>
+                      <TableHead>Serial No</TableHead>
+                      <TableHead>Condition</TableHead>
+                      <TableHead>Purchase Date</TableHead>
+                    </>}
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filteredItems.map(item => {
-                    const sc = STATUS_CONFIG[item.status] || STATUS_CONFIG.in_stock;
+                    const isEquipment = item.item_type === 'equipment';
+                    const sc = isEquipment
+                      ? (EQUIPMENT_STATUS_CONFIG[item.equipment_status] || EQUIPMENT_STATUS_CONFIG.available)
+                      : (STATUS_CONFIG[item.status] || STATUS_CONFIG.in_stock);
                     return (
-                      <TableRow key={item.id} className={`hover:bg-slate-50 dark:hover:bg-slate-800/30 ${item.status === 'out_of_stock' ? 'bg-red-50/40 dark:bg-red-950/10' : item.status === 'low_stock' ? 'bg-amber-50/40 dark:bg-amber-950/10' : ''}`}>
+                      <TableRow key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30">
                         <TableCell className="font-medium">{item.item_name}</TableCell>
                         <TableCell>
                           <Badge variant="outline" className="text-xs">{item.category}</Badge>
@@ -483,19 +571,26 @@ export default function Inventory() {
                           {getProjectName(item.project_id)}
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">{item.location || '—'}</TableCell>
-                        <TableCell className="text-right font-semibold">
-                          {item.quantity} <span className="text-xs text-muted-foreground">{item.unit}</span>
-                        </TableCell>
-                        <TableCell className="text-right text-sm text-muted-foreground">
-                          {item.minimum_quantity} {item.unit}
-                        </TableCell>
-                        <TableCell className="text-right text-sm">
-                          {formatCurrency(item.unit_price)}/{item.unit}
-                        </TableCell>
-                        <TableCell className="text-right font-medium">
-                          {formatCurrency(item.total_value)}
-                        </TableCell>
-                        <TableCell className="text-xs text-muted-foreground">{item.hsn_code || '—'}</TableCell>
+                        {isEquipment ? <>
+                          <TableCell className="text-right font-semibold">{item.quantity ?? '—'}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground font-mono">{item.serial_number || '—'}</TableCell>
+                          <TableCell><Badge variant="outline" className={`text-xs capitalize ${item.condition === 'good' ? 'text-emerald-700' : item.condition === 'fair' ? 'text-amber-700' : 'text-red-700'}`}>{item.condition || '—'}</Badge></TableCell>
+                          <TableCell className="text-sm text-muted-foreground">{item.purchase_date || '—'}</TableCell>
+                        </> : <>
+                          <TableCell className="text-right font-semibold">
+                            {item.quantity} <span className="text-xs text-muted-foreground">{item.unit}</span>
+                          </TableCell>
+                          <TableCell className="text-right text-sm text-muted-foreground">
+                            {item.minimum_quantity} {item.unit}
+                          </TableCell>
+                          <TableCell className="text-right text-sm">
+                            {formatCurrency(item.unit_price)}/{item.unit}
+                          </TableCell>
+                          <TableCell className="text-right font-medium">
+                            {formatCurrency(item.total_value)}
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground">{item.hsn_code || '—'}</TableCell>
+                        </>}
                         <TableCell>
                           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${sc.className}`}>
                             {sc.label}
@@ -562,6 +657,22 @@ export default function Inventory() {
           </DialogHeader>
           <form onSubmit={handleItemSubmit} className="space-y-4 pt-2">
 
+            {/* Type Toggle */}
+            {!selectedItem && (
+              <div className="flex rounded-sm border overflow-hidden">
+                <button type="button"
+                  onClick={() => setItemForm(f => ({ ...f, item_type: 'material', category: 'Cement', unit: 'Bags' }))}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium transition-colors ${itemForm.item_type === 'material' ? 'bg-accent text-white' : 'bg-background text-foreground hover:bg-muted'}`}>
+                  <Package className="w-4 h-4" /> Material
+                </button>
+                <button type="button"
+                  onClick={() => setItemForm(f => ({ ...f, item_type: 'equipment', category: 'Machine', unit: '' }))}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium transition-colors ${itemForm.item_type === 'equipment' ? 'bg-accent text-white' : 'bg-background text-foreground hover:bg-muted'}`}>
+                  <Wrench className="w-4 h-4" /> Equipment
+                </button>
+              </div>
+            )}
+
             {/* Project */}
             <div className="space-y-1.5">
               <Label className="text-xs">Project *</Label>
@@ -592,143 +703,144 @@ export default function Inventory() {
               />
             </div>
 
-            {/* Category + Unit */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label className="text-xs">Category *</Label>
-                <Select value={itemForm.category} onValueChange={v => setItemForm(f => ({ ...f, category: v }))}>
-                  <SelectTrigger className="rounded-sm"><SelectValue /></SelectTrigger>
-                  <SelectContent className="max-h-48 overflow-y-auto">
-                    {inventoryCategories.map(c => (
-                      <SelectItem key={c} value={c}>{c}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {/* Add new category */}
-                <div className="flex gap-1 mt-1">
-                  <input
-                    className="flex-1 text-xs px-2 py-1.5 border rounded-sm outline-none focus:ring-1 focus:ring-ring"
-                    placeholder="Add new category..."
-                    value={newCatInput}
-                    onChange={e => setNewCatInput(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addCategory(newCatInput); } }}
-                  />
-                  <button type="button" className="px-2 py-1 text-xs bg-accent rounded-sm hover:bg-accent/80 shrink-0" onClick={() => addCategory(newCatInput)}>Add</button>
-                </div>
-                {/* Category chips with delete */}
-                <div className="flex flex-wrap gap-1 mt-1 max-h-20 overflow-y-auto">
-                  {inventoryCategories.map(c => (
-                    <span key={c} className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-sm border cursor-pointer transition-colors ${itemForm.category === c ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted/40 hover:bg-muted'}`}
-                      onClick={() => setItemForm(f => ({ ...f, category: c }))}>
-                      {c}
-                      <button type="button" className="hover:text-red-500 leading-none ml-0.5" onClick={e => { e.stopPropagation(); setCatToDelete(c); }}>×</button>
-                    </span>
-                  ))}
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">Unit *</Label>
-                <Select
-                  value={itemForm.unit}
-                  onValueChange={v => setItemForm(f => ({ ...f, unit: v }))}
-                >
-                  <SelectTrigger className="rounded-sm"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {UNITS.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            {/* Quantity + Min Qty */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label className="text-xs">Current Quantity *</Label>
-                <Input
-                  type="number" step="any" min="0" placeholder="0"
-                  value={itemForm.quantity}
-                  onChange={e => setItemForm(f => ({ ...f, quantity: e.target.value }))}
-                  required className="rounded-sm"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">Minimum Quantity (Reorder Level)</Label>
-                <Input
-                  type="number" step="any" min="0" placeholder="0"
-                  value={itemForm.minimum_quantity}
-                  onChange={e => setItemForm(f => ({ ...f, minimum_quantity: e.target.value }))}
-                  className="rounded-sm"
-                />
-              </div>
-            </div>
-
-            {/* Unit Price + GST Rate + HSN */}
-            <div className="grid grid-cols-3 gap-4">
-              <div className="space-y-1.5">
-                <Label className="text-xs">Unit Price (₹)</Label>
-                <Input
-                  type="number" step="any" min="0" placeholder="0.00"
-                  value={itemForm.unit_price}
-                  onChange={e => setItemForm(f => ({ ...f, unit_price: e.target.value }))}
-                  className="rounded-sm"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">GST Rate (%)</Label>
-                <Input
-                  type="number" step="0.01" min="0" max="100" placeholder="18"
-                  value={itemForm.gst_rate}
-                  onChange={e => setItemForm(f => ({ ...f, gst_rate: e.target.value }))}
-                  className="rounded-sm"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">HSN Code</Label>
-                <Input
-                  placeholder="e.g. 7214"
-                  value={itemForm.hsn_code}
-                  onChange={e => setItemForm(f => ({ ...f, hsn_code: e.target.value }))}
-                  className="rounded-sm"
-                />
-              </div>
-            </div>
-
-            {/* Storage Location */}
+            {/* Category */}
             <div className="space-y-1.5">
-              <Label className="text-xs">Storage Location</Label>
-              <Input
-                placeholder="e.g. Yard A, Block 2"
-                value={itemForm.location}
-                onChange={e => setItemForm(f => ({ ...f, location: e.target.value }))}
-                className="rounded-sm"
-              />
+              <Label className="text-xs">Category *</Label>
+              {itemForm.item_type === 'equipment' ? (
+                <>
+                  <Select value={itemForm.category} onValueChange={v => setItemForm(f => ({ ...f, category: v }))}>
+                    <SelectTrigger className="rounded-sm"><SelectValue /></SelectTrigger>
+                    <SelectContent className="max-h-48 overflow-y-auto">
+                      {equipmentCategories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <div className="flex gap-1 mt-1">
+                    <input className="flex-1 text-xs px-2 py-1.5 border rounded-sm outline-none focus:ring-1 focus:ring-ring" placeholder="Add new category..." value={newEquipCatInput} onChange={e => setNewEquipCatInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addEquipmentCategory(newEquipCatInput); } }} />
+                    <button type="button" className="px-2 py-1 text-xs bg-accent text-white rounded-sm hover:bg-accent/80 shrink-0" onClick={() => addEquipmentCategory(newEquipCatInput)}>Add</button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <Select value={itemForm.category} onValueChange={v => setItemForm(f => ({ ...f, category: v }))}>
+                    <SelectTrigger className="rounded-sm"><SelectValue /></SelectTrigger>
+                    <SelectContent className="max-h-48 overflow-y-auto">
+                      {inventoryCategories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <div className="flex gap-1 mt-1">
+                    <input className="flex-1 text-xs px-2 py-1.5 border rounded-sm outline-none focus:ring-1 focus:ring-ring" placeholder="Add new category..." value={newCatInput} onChange={e => setNewCatInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addCategory(newCatInput); } }} />
+                    <button type="button" className="px-2 py-1 text-xs bg-accent text-white rounded-sm hover:bg-accent/80 shrink-0" onClick={() => addCategory(newCatInput)}>Add</button>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {itemForm.item_type === 'material' ? (
+              <>
+                {/* Unit + Quantity + Min Qty */}
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Unit *</Label>
+                    <Select value={itemForm.unit} onValueChange={v => setItemForm(f => ({ ...f, unit: v }))}>
+                      <SelectTrigger className="rounded-sm"><SelectValue /></SelectTrigger>
+                      <SelectContent>{UNITS.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Current Quantity</Label>
+                    <Input type="number" step="any" min="0" placeholder="0" value={itemForm.quantity} onChange={e => setItemForm(f => ({ ...f, quantity: e.target.value }))} className="rounded-sm" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Min Qty (Reorder)</Label>
+                    <Input type="number" step="any" min="0" placeholder="0" value={itemForm.minimum_quantity} onChange={e => setItemForm(f => ({ ...f, minimum_quantity: e.target.value }))} className="rounded-sm" />
+                  </div>
+                </div>
+                {/* Unit Price + GST + HSN */}
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Unit Price (₹)</Label>
+                    <Input type="number" step="any" min="0" placeholder="0.00" value={itemForm.unit_price} onChange={e => setItemForm(f => ({ ...f, unit_price: e.target.value }))} className="rounded-sm" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">GST Rate (%)</Label>
+                    <Select value={String(itemForm.gst_rate)} onValueChange={v => setItemForm(f => ({ ...f, gst_rate: +v }))}>
+                      <SelectTrigger className="rounded-sm"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {[0, 5, 12, 18, 28].map(r => <SelectItem key={r} value={String(r)}>{r}%</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">HSN Code</Label>
+                    <Input placeholder="e.g. 7214" value={itemForm.hsn_code} onChange={e => setItemForm(f => ({ ...f, hsn_code: e.target.value }))} className="rounded-sm" />
+                  </div>
+                </div>
+                {itemForm.quantity && itemForm.unit_price && (
+                  <div className="flex items-center gap-2 p-3 bg-slate-50 dark:bg-slate-800 rounded-sm border text-sm">
+                    <IndianRupee className="w-4 h-4 text-emerald-600" />
+                    <span className="text-muted-foreground">Total Value:</span>
+                    <span className="font-semibold text-emerald-600">{formatCurrency((parseFloat(itemForm.quantity) || 0) * (parseFloat(itemForm.unit_price) || 0))}</span>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                {/* Equipment-specific fields */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Serial Number</Label>
+                    <Input placeholder="e.g. JD-2024-001" value={itemForm.serial_number} onChange={e => setItemForm(f => ({ ...f, serial_number: e.target.value }))} className="rounded-sm" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Count / Quantity</Label>
+                    <Input type="number" step="1" min="1" placeholder="1" value={itemForm.quantity} onChange={e => setItemForm(f => ({ ...f, quantity: e.target.value }))} className="rounded-sm" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Condition</Label>
+                    <Select value={itemForm.condition} onValueChange={v => setItemForm(f => ({ ...f, condition: v }))}>
+                      <SelectTrigger className="rounded-sm"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="good">Good</SelectItem>
+                        <SelectItem value="fair">Fair</SelectItem>
+                        <SelectItem value="poor">Poor</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Status</Label>
+                    <Select value={itemForm.equipment_status} onValueChange={v => setItemForm(f => ({ ...f, equipment_status: v }))}>
+                      <SelectTrigger className="rounded-sm"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="available">Available</SelectItem>
+                        <SelectItem value="in_use">In Use</SelectItem>
+                        <SelectItem value="maintenance">Maintenance</SelectItem>
+                        <SelectItem value="retired">Retired</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Purchase Date</Label>
+                    <Input type="date" value={itemForm.purchase_date} onChange={e => setItemForm(f => ({ ...f, purchase_date: e.target.value }))} className="rounded-sm" />
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Location */}
+            <div className="space-y-1.5">
+              <Label className="text-xs">{itemForm.item_type === 'equipment' ? 'Current Location' : 'Storage Location'}</Label>
+              <Input placeholder="e.g. Yard A, Block 2" value={itemForm.location} onChange={e => setItemForm(f => ({ ...f, location: e.target.value }))} className="rounded-sm" />
             </div>
 
             {/* Notes */}
             <div className="space-y-1.5">
               <Label className="text-xs">Notes</Label>
-              <Textarea
-                placeholder="Any additional notes about this material…"
-                value={itemForm.notes}
-                onChange={e => setItemForm(f => ({ ...f, notes: e.target.value }))}
-                rows={2} className="rounded-sm resize-none"
-              />
+              <Textarea placeholder={itemForm.item_type === 'equipment' ? 'Any notes about this equipment…' : 'Any additional notes about this material…'} value={itemForm.notes} onChange={e => setItemForm(f => ({ ...f, notes: e.target.value }))} rows={2} className="rounded-sm resize-none" />
             </div>
-
-            {/* Live total value preview */}
-            {itemForm.quantity && itemForm.unit_price && (
-              <div className="flex items-center gap-2 p-3 bg-slate-50 dark:bg-slate-800 rounded-sm border text-sm">
-                <IndianRupee className="w-4 h-4 text-emerald-600" />
-                <span className="text-muted-foreground">Total Value:</span>
-                <span className="font-semibold text-emerald-600">
-                  {formatCurrency((parseFloat(itemForm.quantity) || 0) * (parseFloat(itemForm.unit_price) || 0))}
-                </span>
-              </div>
-            )}
 
             <div className="flex justify-end gap-2 pt-2 border-t">
               <Button type="button" variant="outline" onClick={() => setIsItemDialogOpen(false)}>Cancel</Button>
-              <Button type="submit" disabled={formLoading}>
+              <Button type="submit" disabled={formLoading} className="bg-accent hover:bg-accent/90 text-white">
                 {formLoading ? 'Saving…' : selectedItem ? 'Update Item' : 'Add Item'}
               </Button>
             </div>
@@ -926,6 +1038,15 @@ export default function Inventory() {
         onOpenChange={v => { if (!v) setCatToDelete(null); }}
         onConfirm={() => { deleteCategory(catToDelete); setCatToDelete(null); }}
         title={`Delete category "${catToDelete}"?`}
+        description="This will remove the category from the list. Existing items with this category will not be affected."
+      />
+
+      {/* ── Delete Equipment Category Confirm ────────────── */}
+      <DeleteConfirmationDialog
+        open={!!equipCatToDelete}
+        onOpenChange={v => { if (!v) setEquipCatToDelete(null); }}
+        onConfirm={() => { deleteEquipmentCategory(equipCatToDelete); setEquipCatToDelete(null); }}
+        title={`Delete category "${equipCatToDelete}"?`}
         description="This will remove the category from the list. Existing items with this category will not be affected."
       />
     </div>

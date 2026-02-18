@@ -18,8 +18,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Progress } from '../components/ui/progress';
 import { formatCurrency, formatNumber } from '../lib/utils';
 import {
-  AreaChart,
-  Area,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -86,7 +84,7 @@ export default function Dashboard() {
       value: stats?.total_projects || 0,
       subtitle: `${stats?.active_projects || 0} active`,
       icon: FolderKanban,
-      trend: '+2 this month',
+      trend: `+${stats?.projects_this_month || 0} this month`,
       trendUp: true,
       variant: 'default'
     },
@@ -146,10 +144,10 @@ export default function Dashboard() {
     }
   ];
 
-  const costChartData = chartData?.monthly_cost?.labels?.map((month, i) => ({
-    month,
-    budget: chartData.monthly_cost.budget[i],
-    actual: chartData.monthly_cost.actual[i]
+  const costChartData = chartData?.project_cost?.labels?.map((name, i) => ({
+    name: name.length > 18 ? name.slice(0, 16) + '…' : name,
+    budget: chartData.project_cost.budget[i],
+    actual: chartData.project_cost.actual[i]
   })) || [];
 
   const projectStatusData = chartData?.project_status ? [
@@ -159,12 +157,7 @@ export default function Dashboard() {
     { name: 'Completed', value: chartData.project_status.completed || 0 }
   ].filter(item => item.value > 0) : [];
 
-  const expenseData = chartData?.expense_breakdown ? [
-    { name: 'Materials', value: chartData.expense_breakdown.materials },
-    { name: 'Labor', value: chartData.expense_breakdown.labor },
-    { name: 'Equipment', value: chartData.expense_breakdown.equipment },
-    { name: 'Overhead', value: chartData.expense_breakdown.overhead }
-  ] : [];
+  const stockAlerts = stats?.stock_alerts || [];
 
   return (
     <div className="space-y-6" data-testid="dashboard-page">
@@ -243,57 +236,35 @@ export default function Dashboard() {
 
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Cost Trend Chart */}
+        {/* Project Budget vs Actual Chart */}
         <Card className="lg:col-span-2 rounded-sm">
           <CardHeader className="pb-2">
             <CardTitle className="text-lg font-semibold uppercase tracking-wide">
-              Budget vs Actual Cost (Lakhs)
+              Project Budget vs Actual Cost (Lakhs)
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="h-64 md:h-80 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={costChartData}>
-                  <defs>
-                    <linearGradient id="budgetGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#0052CC" stopOpacity={0.3}/>
-                      <stop offset="95%" stopColor="#0052CC" stopOpacity={0}/>
-                    </linearGradient>
-                    <linearGradient id="actualGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#FFAB00" stopOpacity={0.3}/>
-                      <stop offset="95%" stopColor="#FFAB00" stopOpacity={0}/>
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
-                  <XAxis dataKey="month" tick={{ fontSize: 12 }} />
-                  <YAxis tick={{ fontSize: 12 }} />
-                  <Tooltip 
-                    contentStyle={{ 
-                      backgroundColor: '#0F172A', 
-                      border: 'none', 
-                      borderRadius: '2px',
-                      color: '#F8FAFC'
-                    }}
-                  />
-                  <Legend />
-                  <Area 
-                    type="monotone" 
-                    dataKey="budget" 
-                    stroke="#0052CC" 
-                    fill="url(#budgetGradient)"
-                    strokeWidth={2}
-                    name="Budget"
-                  />
-                  <Area 
-                    type="monotone" 
-                    dataKey="actual" 
-                    stroke="#FFAB00" 
-                    fill="url(#actualGradient)"
-                    strokeWidth={2}
-                    name="Actual"
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
+            <div className="h-64 md:h-80 w-full overflow-x-auto">
+              {costChartData.length === 0 ? (
+                <div className="flex items-center justify-center h-full text-muted-foreground text-sm">No projects found</div>
+              ) : (
+                <div style={{ minWidth: Math.max(500, costChartData.length * 100) }}>
+                  <ResponsiveContainer width="100%" height={window.innerWidth >= 768 ? 320 : 256}>
+                    <BarChart data={costChartData} barCategoryGap="30%" barGap={4}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                      <XAxis dataKey="name" tick={{ fontSize: 11 }} interval={0} angle={-30} textAnchor="end" height={55} />
+                      <YAxis tick={{ fontSize: 12 }} unit="L" width={45} />
+                      <Tooltip
+                        contentStyle={{ backgroundColor: '#0F172A', border: 'none', borderRadius: '2px', color: '#F8FAFC' }}
+                        formatter={(value, name) => [`₹${value}L`, name]}
+                      />
+                      <Legend />
+                      <Bar dataKey="budget" name="Budget" fill="#0052CC" radius={[3, 3, 0, 0]} />
+                      <Bar dataKey="actual" name="Actual Cost" fill="#FFAB00" radius={[3, 3, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -306,66 +277,125 @@ export default function Dashboard() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="h-64 md:h-80 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={projectStatusData.length > 0 ? projectStatusData : [{ name: 'No Data', value: 1 }]}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={60}
-                    outerRadius={90}
-                    paddingAngle={2}
-                    dataKey="value"
-                  >
+            {(() => {
+              const total = projectStatusData.reduce((s, d) => s + d.value, 0);
+              return (
+                <div className="flex flex-col items-center gap-3">
+                  <div className="h-44 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={projectStatusData.length > 0 ? projectStatusData : [{ name: 'No Data', value: 1 }]}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={52}
+                          outerRadius={78}
+                          paddingAngle={2}
+                          dataKey="value"
+                        >
+                          {projectStatusData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip formatter={(value) => [value, 'Projects']} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="w-full space-y-1.5">
                     {projectStatusData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      <div key={entry.name} className="flex items-center justify-between text-sm">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: COLORS[index % COLORS.length] }} />
+                          <span className="text-muted-foreground">{entry.name}</span>
+                        </div>
+                        <div className="flex items-center gap-2 font-medium">
+                          <span>{entry.value}</span>
+                          <span className="text-xs text-muted-foreground w-10 text-right">
+                            {total > 0 ? `${Math.round(entry.value / total * 100)}%` : '0%'}
+                          </span>
+                        </div>
+                      </div>
                     ))}
-                  </Pie>
-                  <Tooltip />
-                  <Legend 
-                    verticalAlign="bottom" 
-                    height={36}
-                    formatter={(value) => <span className="text-xs">{value}</span>}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
+                    {projectStatusData.length === 0 && (
+                      <p className="text-center text-xs text-muted-foreground">No projects yet</p>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
           </CardContent>
         </Card>
       </div>
 
-      {/* Expense Breakdown */}
+      {/* Stock Alerts */}
       <Card className="rounded-sm">
         <CardHeader className="pb-2">
-          <CardTitle className="text-lg font-semibold uppercase tracking-wide">
-            Expense Distribution
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-lg font-semibold uppercase tracking-wide">
+              Stock Alerts
+            </CardTitle>
+            <div className="flex items-center gap-2">
+              {(stats?.out_of_stock_count || 0) > 0 && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-xs font-semibold bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
+                  {stats.out_of_stock_count} Out of Stock
+                </span>
+              )}
+              {(stats?.low_stock_count || 0) > 0 && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-xs font-semibold bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                  {stats.low_stock_count} Low Stock
+                </span>
+              )}
+              {(stats?.out_of_stock_count || 0) === 0 && (stats?.low_stock_count || 0) === 0 && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-xs font-semibold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                  All items in stock
+                </span>
+              )}
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
-          <div className="h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={expenseData} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
-                <XAxis type="number" tick={{ fontSize: 12 }} />
-                <YAxis dataKey="name" type="category" tick={{ fontSize: 12 }} width={80} />
-                <Tooltip 
-                  contentStyle={{ 
-                    backgroundColor: '#0F172A', 
-                    border: 'none', 
-                    borderRadius: '2px',
-                    color: '#F8FAFC'
-                  }}
-                  formatter={(value) => [`${value}%`, 'Share']}
-                />
-                <Bar dataKey="value" fill="#0052CC" radius={[0, 4, 4, 0]}>
-                  {expenseData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+          {stockAlerts.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-6">No stock alerts — all materials are well stocked.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <div className={stockAlerts.length > 5 ? "max-h-72 overflow-y-auto" : ""}>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-xs text-muted-foreground uppercase tracking-wide">
+                    <th className="text-left py-2 pr-4 font-medium">Item</th>
+                    <th className="text-left py-2 pr-4 font-medium">Project</th>
+                    <th className="text-left py-2 pr-4 font-medium">Category</th>
+                    <th className="text-right py-2 pr-4 font-medium">Qty</th>
+                    <th className="text-right py-2 pr-4 font-medium">Min Qty</th>
+                    <th className="text-center py-2 font-medium">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stockAlerts.map((item, i) => (
+                    <tr key={item.id || i} className="border-b last:border-0 hover:bg-muted/30">
+                      <td className="py-2 pr-4 font-medium">{item.item_name}</td>
+                      <td className="py-2 pr-4 text-muted-foreground text-xs">{item.project_name}</td>
+                      <td className="py-2 pr-4 text-muted-foreground text-xs">{item.category}</td>
+                      <td className="py-2 pr-4 text-right font-mono">
+                        {item.quantity} <span className="text-xs text-muted-foreground">{item.unit}</span>
+                      </td>
+                      <td className="py-2 pr-4 text-right font-mono text-muted-foreground">
+                        {item.minimum_quantity} <span className="text-xs">{item.unit}</span>
+                      </td>
+                      <td className="py-2 text-center">
+                        {item.status === 'out_of_stock' ? (
+                          <span className="px-2 py-0.5 rounded-sm text-xs font-semibold bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">Out of Stock</span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded-sm text-xs font-semibold bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">Low Stock</span>
+                        )}
+                      </td>
+                    </tr>
                   ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
+                </tbody>
+              </table>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 

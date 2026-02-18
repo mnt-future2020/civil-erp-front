@@ -3,7 +3,7 @@ import {
   Plus, Search, Users, Calendar, IndianRupee, Clock, Loader2,
   UserPlus, ClipboardCheck, Banknote, Eye, Edit3, Trash2,
   ArrowLeft, Phone, Mail, MapPin, Filter, CheckCircle2, XCircle,
-  BarChart3, Building2, AlertTriangle, Shield, HardHat
+  BarChart3, Building2, AlertTriangle, Shield, HardHat, Briefcase, X
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
@@ -53,6 +53,20 @@ export default function HRMS() {
   const [catLoading, setCatLoading] = useState(false);
   const emptyLaborForm = { project_id: '', category_id: '', day_rate: '', notes: '' };
   const [laborForm, setLaborForm] = useState(emptyLaborForm);
+
+  // Contractor state
+  const [contractors, setContractors] = useState([]);
+  const [isContractorDialogOpen, setIsContractorDialogOpen] = useState(false);
+  const [editingContractor, setEditingContractor] = useState(null);
+  const [contractorStatusFilter, setContractorStatusFilter] = useState('all');
+  const CONTRACTOR_ROLES_DEFAULT = ['Mason', 'Bar Bender', 'Carpenter', 'Painter', 'Plumber', 'Electrician', 'Welder', 'Helper', 'Supervisor', 'Tiler'];
+  const emptyContractorForm = {
+    name: '', contractor_code: '', phone: '', email: '', address: '', city: '', gstin: '',
+    project_id: '', trade: '', contract_value: '',
+    start_date: '', end_date: '', status: 'active', roles: [], notes: ''
+  };
+  const [contractorForm, setContractorForm] = useState(emptyContractorForm);
+  const [newRoleName, setNewRoleName] = useState('');
   const [deleteCatDialogOpen, setDeleteCatDialogOpen] = useState(false);
   const [catToDelete, setCatToDelete] = useState(null);
   const [isDeletingCat, setIsDeletingCat] = useState(false);
@@ -72,14 +86,14 @@ export default function HRMS() {
 
   const fetchData = async () => {
     try {
-      const [eRes, aRes, pRes, prRes, rRes, dRes, lcRes, lRes] = await Promise.all([
+      const [eRes, aRes, pRes, prRes, rRes, dRes, lcRes, lRes, cRes] = await Promise.all([
         api.get('/employees'), api.get('/attendance'), api.get('/payroll'),
         api.get('/projects?limit=1000'), api.get('/roles'), api.get('/hrms/dashboard'),
-        api.get('/labor-categories'), api.get('/labor')
+        api.get('/labor-categories'), api.get('/labor'), api.get('/contractors')
       ]);
       setEmployees(eRes.data); setAttendance(aRes.data); setPayrolls(pRes.data);
       setProjects(prRes.data.data); setRoles(rRes.data); setDashboard(dRes.data);
-      setLaborCategories(lcRes.data); setLaborEntries(lRes.data);
+      setLaborCategories(lcRes.data); setLaborEntries(lRes.data); setContractors(cRes.data);
     } catch { toast.error('Failed to load HRMS data'); }
     finally { setLoading(false); }
   };
@@ -113,6 +127,37 @@ export default function HRMS() {
   };
   const deactivateEmployee = async (eid) => { try { await api.patch(`/employees/${eid}/deactivate`); toast.success('Employee deactivated'); setEmployeeDetail(null); fetchData(); } catch { toast.error('Failed'); } };
   const viewEmployeeDetail = async (eid) => { try { const res = await api.get(`/employees/${eid}/detail`); setEmployeeDetail(res.data); } catch { toast.error('Failed'); } };
+
+  // Contractor
+  const handleContractorSubmit = async (e) => {
+    e.preventDefault(); setFormLoading(true);
+    try {
+      const payload = {
+        ...contractorForm,
+        contract_value: parseFloat(contractorForm.contract_value) || 0,
+      };
+      if (editingContractor) {
+        await api.patch(`/contractors/${editingContractor.id}`, payload);
+        toast.success('Contractor updated');
+      } else {
+        await api.post('/contractors', payload);
+        toast.success('Contractor added');
+      }
+      setIsContractorDialogOpen(false); setEditingContractor(null); setContractorForm(emptyContractorForm); fetchData();
+    } catch (err) { toast.error(err.response?.data?.detail || 'Failed'); } finally { setFormLoading(false); }
+  };
+  const editContractor = (c) => { setEditingContractor(c); setContractorForm({ ...c, contract_value: String(c.contract_value) }); setIsContractorDialogOpen(true); };
+  const deleteContractor = async (id) => { try { await api.delete(`/contractors/${id}`); toast.success('Deleted'); fetchData(); } catch { toast.error('Failed'); } };
+  const addContractorRoleByName = (name) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    if (contractorForm.roles.find(r => r.category.toLowerCase() === trimmed.toLowerCase())) return;
+    setContractorForm(f => ({ ...f, roles: [...f.roles, { category: trimmed }] }));
+    setNewRoleName('');
+  };
+  const removeContractorRole = (idx) => setContractorForm(f => ({ ...f, roles: f.roles.filter((_, i) => i !== idx) }));
+
+  const filteredContractors = useMemo(() => contractors.filter(c => contractorStatusFilter === 'all' || c.status === contractorStatusFilter), [contractors, contractorStatusFilter]);
 
   // Attendance
   const handleAttendanceSubmit = async (e) => {
@@ -230,80 +275,183 @@ export default function HRMS() {
       <Tabs defaultValue="employees" className="space-y-4">
         <TabsList className="rounded-sm">
           <TabsTrigger value="employees" className="rounded-sm gap-1.5" data-testid="employees-tab"><Users className="w-4 h-4" />Employees ({employees.length})</TabsTrigger>
-          <TabsTrigger value="attendance" className="rounded-sm gap-1.5" data-testid="attendance-tab"><ClipboardCheck className="w-4 h-4" />Attendance ({attendance.length})</TabsTrigger>
+          <TabsTrigger value="contractor" className="rounded-sm gap-1.5"><Briefcase className="w-4 h-4" />Contractor ({contractors.length})</TabsTrigger>
+          <TabsTrigger value="labor" className="rounded-sm gap-1.5"><HardHat className="w-4 h-4" />Labour ({laborEntries.length})</TabsTrigger>
           <TabsTrigger value="payroll" className="rounded-sm gap-1.5" data-testid="payroll-tab"><Banknote className="w-4 h-4" />Payroll ({payrolls.length})</TabsTrigger>
-          <TabsTrigger value="labor" className="rounded-sm gap-1.5"><HardHat className="w-4 h-4" />Labor ({laborEntries.length})</TabsTrigger>
-          {user?.role === 'admin' && (
-            <TabsTrigger value="roles" className="rounded-sm gap-1.5" data-testid="roles-tab"><Shield className="w-4 h-4" />Roles ({roles.length})</TabsTrigger>
-          )}
         </TabsList>
 
         {/* ===== EMPLOYEES ===== */}
         <TabsContent value="employees" className="space-y-4">
-          {employeeDetail ? (
-            <EmployeeDetailView detail={employeeDetail} onBack={() => setEmployeeDetail(null)} onEdit={editEmployee} onDeactivate={deactivateEmployee} />
-          ) : (
-            <>
-              <div className="flex flex-wrap gap-3 justify-between">
-                <div className="flex gap-2 flex-1">
-                  <div className="relative flex-1 max-w-sm"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" /><Input placeholder="Search employees..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pl-10 rounded-sm" data-testid="employee-search" /></div>
-                  <Select value={deptFilter} onValueChange={setDeptFilter}><SelectTrigger className="w-44 rounded-sm text-sm" data-testid="dept-filter"><Filter className="w-4 h-4 mr-1" /><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All Departments</SelectItem>{departments.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent></Select>
-                </div>
+          <Tabs defaultValue="list" className="space-y-4">
+            <TabsList className="rounded-sm">
+              <TabsTrigger value="list" className="rounded-sm gap-1.5"><Users className="w-4 h-4" />All ({employees.length})</TabsTrigger>
+              <TabsTrigger value="attendance" className="rounded-sm gap-1.5" data-testid="attendance-tab"><ClipboardCheck className="w-4 h-4" />Attendance ({attendance.length})</TabsTrigger>
+              {user?.role === 'admin' && (
+                <TabsTrigger value="roles" className="rounded-sm gap-1.5" data-testid="roles-tab"><Shield className="w-4 h-4" />Roles ({roles.length})</TabsTrigger>
+              )}
+            </TabsList>
+
+            {/* ---- Employee List ---- */}
+            <TabsContent value="list" className="space-y-4">
+              {employeeDetail ? (
+                <EmployeeDetailView detail={employeeDetail} onBack={() => setEmployeeDetail(null)} onEdit={editEmployee} onDeactivate={deactivateEmployee} />
+              ) : (
+                <>
+                  <div className="flex flex-wrap gap-3 justify-between">
+                    <div className="flex gap-2 flex-1">
+                      <div className="relative flex-1 max-w-sm"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" /><Input placeholder="Search employees..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pl-10 rounded-sm" data-testid="employee-search" /></div>
+                      <Select value={deptFilter} onValueChange={setDeptFilter}><SelectTrigger className="w-44 rounded-sm text-sm" data-testid="dept-filter"><Filter className="w-4 h-4 mr-1" /><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All Departments</SelectItem>{departments.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent></Select>
+                    </div>
+                    {hasPermission('hrms', 'create') && (
+                      <Button className="action-btn action-btn-accent" onClick={() => { setEditingEmployee(null); setEmployeeForm(emptyEmpForm); setIsEmployeeDialogOpen(true); }} data-testid="add-employee-btn"><UserPlus className="w-4 h-4" />Add Employee</Button>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {filteredEmployees.length === 0 ? (
+                      <Card className="col-span-full rounded-sm"><CardContent className="text-center py-12 text-muted-foreground"><Users className="w-10 h-10 mx-auto mb-2 opacity-30" /><p>No employees found</p></CardContent></Card>
+                    ) : filteredEmployees.map(emp => (
+                      <Card key={emp.id} className="rounded-sm card-hover cursor-pointer group" onClick={() => viewEmployeeDetail(emp.id)} data-testid={`employee-card-${emp.id}`}>
+                        <CardContent className="p-4">
+                          <div className="flex items-start gap-3">
+                            <Avatar className="w-11 h-11"><AvatarFallback className="bg-accent text-accent-foreground text-sm">{getInitials(emp.name)}</AvatarFallback></Avatar>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-semibold truncate">{emp.name}</p>
+                              <p className="text-xs text-muted-foreground">{emp.designation}</p>
+                              <div className="flex items-center gap-2 mt-1"><Badge variant="outline" className="text-[10px] rounded-sm">{emp.department}</Badge><span className="text-[10px] font-mono text-muted-foreground">{emp.employee_code}</span></div>
+                            </div>
+                          </div>
+                          <div className="mt-3 pt-3 border-t grid grid-cols-2 gap-2 text-xs">
+                            <div><span className="text-muted-foreground">Joined</span><p className="font-medium">{formatDate(emp.date_of_joining)}</p></div>
+                            <div className="text-right"><span className="text-muted-foreground">Salary</span><p className="font-semibold">{formatCurrency(emp.basic_salary + (emp.hra || 0))}</p></div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                </>
+              )}
+            </TabsContent>
+
+            {/* ---- Attendance ---- */}
+            <TabsContent value="attendance" className="space-y-4">
+              <div className="flex justify-end">
                 {hasPermission('hrms', 'create') && (
-                  <Button className="action-btn action-btn-accent" onClick={() => { setEditingEmployee(null); setEmployeeForm(emptyEmpForm); setIsEmployeeDialogOpen(true); }} data-testid="add-employee-btn"><UserPlus className="w-4 h-4" />Add Employee</Button>
+                  <Button className="action-btn action-btn-accent" onClick={() => setIsAttendanceDialogOpen(true)} data-testid="mark-attendance-btn"><ClipboardCheck className="w-4 h-4" />Mark Attendance</Button>
                 )}
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {filteredEmployees.length === 0 ? (
-                  <Card className="col-span-full rounded-sm"><CardContent className="text-center py-12 text-muted-foreground"><Users className="w-10 h-10 mx-auto mb-2 opacity-30" /><p>No employees found</p></CardContent></Card>
-                ) : filteredEmployees.map(emp => (
-                  <Card key={emp.id} className="rounded-sm card-hover cursor-pointer group" onClick={() => viewEmployeeDetail(emp.id)} data-testid={`employee-card-${emp.id}`}>
-                    <CardContent className="p-4">
-                      <div className="flex items-start gap-3">
-                        <Avatar className="w-11 h-11"><AvatarFallback className="bg-accent text-accent-foreground text-sm">{getInitials(emp.name)}</AvatarFallback></Avatar>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-semibold truncate">{emp.name}</p>
-                          <p className="text-xs text-muted-foreground">{emp.designation}</p>
-                          <div className="flex items-center gap-2 mt-1"><Badge variant="outline" className="text-[10px] rounded-sm">{emp.department}</Badge><span className="text-[10px] font-mono text-muted-foreground">{emp.employee_code}</span></div>
-                        </div>
-                      </div>
-                      <div className="mt-3 pt-3 border-t grid grid-cols-2 gap-2 text-xs">
-                        <div><span className="text-muted-foreground">Joined</span><p className="font-medium">{formatDate(emp.date_of_joining)}</p></div>
-                        <div className="text-right"><span className="text-muted-foreground">Salary</span><p className="font-semibold">{formatCurrency(emp.basic_salary + (emp.hra || 0))}</p></div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            </>
-          )}
+              <Card className="rounded-sm">
+                <Table>
+                  <TableHeader><TableRow>
+                    <TableHead>Employee</TableHead><TableHead>Date</TableHead><TableHead>Check In</TableHead><TableHead>Check Out</TableHead><TableHead>OT</TableHead><TableHead>Status</TableHead>
+                  </TableRow></TableHeader>
+                  <TableBody>
+                    {attendance.length === 0 ? (
+                      <TableRow><TableCell colSpan={6} className="text-center py-10 text-muted-foreground"><ClipboardCheck className="w-8 h-8 mx-auto mb-2 opacity-30" /><p>No attendance records</p></TableCell></TableRow>
+                    ) : attendance.slice(0, 50).map(a => (
+                      <TableRow key={a.id} data-testid={`att-row-${a.id}`}>
+                        <TableCell><div><p className="font-medium text-sm">{getEmpName(a.employee_id)}</p><p className="text-[10px] font-mono text-muted-foreground">{getEmpCode(a.employee_id)}</p></div></TableCell>
+                        <TableCell className="text-sm">{formatDate(a.date)}</TableCell>
+                        <TableCell className="text-sm font-mono">{a.check_in || '-'}</TableCell>
+                        <TableCell className="text-sm font-mono">{a.check_out || '-'}</TableCell>
+                        <TableCell className="text-sm">{a.overtime_hours > 0 ? `${a.overtime_hours}h` : '-'}</TableCell>
+                        <TableCell><Badge className={`${attStatusColors[a.status]} text-xs rounded-sm capitalize`}>{a.status.replace('_', ' ')}</Badge></TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Card>
+            </TabsContent>
+
+            {/* ---- Roles ---- */}
+            {user?.role === 'admin' && (
+              <TabsContent value="roles" className="space-y-4">
+                <RolesManager api={api} onRolesChange={fetchData} />
+              </TabsContent>
+            )}
+          </Tabs>
         </TabsContent>
 
-        {/* ===== ATTENDANCE ===== */}
-        <TabsContent value="attendance" className="space-y-4">
-          <div className="flex justify-end">
+        {/* ===== CONTRACTOR ===== */}
+        <TabsContent value="contractor" className="space-y-4">
+          {/* Summary */}
+          {contractors.length > 0 && (() => {
+            const totalVal = contractors.reduce((s, c) => s + (c.contract_value || 0), 0);
+            const active = contractors.filter(c => c.status === 'active').length;
+            const completed = contractors.filter(c => c.status === 'completed').length;
+            return (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <Card className="rounded-sm"><CardContent className="p-3 text-center"><p className="text-[10px] text-muted-foreground uppercase">Total</p><p className="text-xl font-bold">{contractors.length}</p></CardContent></Card>
+                <Card className="rounded-sm"><CardContent className="p-3 text-center"><p className="text-[10px] text-muted-foreground uppercase">Active</p><p className="text-xl font-bold text-emerald-600">{active}</p></CardContent></Card>
+                <Card className="rounded-sm"><CardContent className="p-3 text-center"><p className="text-[10px] text-muted-foreground uppercase">Completed</p><p className="text-xl font-bold text-blue-600">{completed}</p></CardContent></Card>
+                <Card className="rounded-sm"><CardContent className="p-3 text-center"><p className="text-[10px] text-muted-foreground uppercase">Total Value</p><p className="text-lg font-bold">{formatCurrency(totalVal)}</p></CardContent></Card>
+              </div>
+            );
+          })()}
+
+          {/* Toolbar */}
+          <div className="flex flex-wrap gap-3 justify-between">
+            <Select value={contractorStatusFilter} onValueChange={setContractorStatusFilter}>
+              <SelectTrigger className="w-44 rounded-sm text-sm"><Filter className="w-4 h-4 mr-1" /><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Status</SelectItem>
+                {['active','completed','on_hold','terminated'].map(s => <SelectItem key={s} value={s} className="capitalize">{s.replace('_',' ')}</SelectItem>)}
+              </SelectContent>
+            </Select>
             {hasPermission('hrms', 'create') && (
-              <Button className="action-btn action-btn-accent" onClick={() => setIsAttendanceDialogOpen(true)} data-testid="mark-attendance-btn"><ClipboardCheck className="w-4 h-4" />Mark Attendance</Button>
+              <Button className="action-btn action-btn-accent" onClick={() => { setEditingContractor(null); setContractorForm(emptyContractorForm); setIsContractorDialogOpen(true); }}>
+                <Plus className="w-4 h-4" />Add Contractor
+              </Button>
             )}
           </div>
+
+          {/* Table */}
           <Card className="rounded-sm">
             <Table>
               <TableHeader><TableRow>
-                <TableHead>Employee</TableHead><TableHead>Date</TableHead><TableHead>Check In</TableHead><TableHead>Check Out</TableHead><TableHead>OT</TableHead><TableHead>Status</TableHead>
+                <TableHead>Code</TableHead>
+                <TableHead>Name</TableHead>
+                <TableHead>Trade</TableHead>
+                <TableHead>Project</TableHead>
+                <TableHead>Roles</TableHead>
+                <TableHead className="text-right">Contract Value</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow></TableHeader>
               <TableBody>
-                {attendance.length === 0 ? (
-                  <TableRow><TableCell colSpan={6} className="text-center py-10 text-muted-foreground"><ClipboardCheck className="w-8 h-8 mx-auto mb-2 opacity-30" /><p>No attendance records</p></TableCell></TableRow>
-                ) : attendance.slice(0, 50).map(a => (
-                  <TableRow key={a.id} data-testid={`att-row-${a.id}`}>
-                    <TableCell><div><p className="font-medium text-sm">{getEmpName(a.employee_id)}</p><p className="text-[10px] font-mono text-muted-foreground">{getEmpCode(a.employee_id)}</p></div></TableCell>
-                    <TableCell className="text-sm">{formatDate(a.date)}</TableCell>
-                    <TableCell className="text-sm font-mono">{a.check_in || '-'}</TableCell>
-                    <TableCell className="text-sm font-mono">{a.check_out || '-'}</TableCell>
-                    <TableCell className="text-sm">{a.overtime_hours > 0 ? `${a.overtime_hours}h` : '-'}</TableCell>
-                    <TableCell><Badge className={`${attStatusColors[a.status]} text-xs rounded-sm capitalize`}>{a.status.replace('_', ' ')}</Badge></TableCell>
-                  </TableRow>
-                ))}
+                {filteredContractors.length === 0 ? (
+                  <TableRow><TableCell colSpan={10} className="text-center py-10 text-muted-foreground">
+                    <Briefcase className="w-8 h-8 mx-auto mb-2 opacity-30" /><p>No contractors found</p>
+                  </TableCell></TableRow>
+                ) : filteredContractors.map(c => {
+                  const proj = projects.find(p => p.id === c.project_id);
+                  const statusColors = { active: 'bg-emerald-100 text-emerald-700', completed: 'bg-blue-100 text-blue-700', on_hold: 'bg-amber-100 text-amber-700', terminated: 'bg-red-100 text-red-700' };
+                  return (
+                    <TableRow key={c.id}>
+                      <TableCell className="font-mono text-xs text-muted-foreground">{c.contractor_code}</TableCell>
+                      <TableCell>
+                        <p className="font-medium text-sm">{c.name}</p>
+                        {c.phone && <p className="text-[10px] text-muted-foreground">{c.phone}</p>}
+                      </TableCell>
+                      <TableCell><Badge variant="outline" className="rounded-sm text-xs capitalize">{c.trade || '-'}</Badge></TableCell>
+                      <TableCell className="text-sm">{proj?.name || <span className="text-muted-foreground">-</span>}</TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap gap-1">
+                          {(c.roles || []).slice(0, 3).map((r, i) => <Badge key={i} variant="secondary" className="rounded-sm text-[10px]">{r.category} ×{r.count}</Badge>)}
+                          {(c.roles || []).length > 3 && <Badge variant="secondary" className="rounded-sm text-[10px]">+{c.roles.length - 3}</Badge>}
+                          {(c.roles || []).length === 0 && <span className="text-muted-foreground text-xs">-</span>}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right font-semibold text-sm">{formatCurrency(c.contract_value || 0)}</TableCell>
+                      <TableCell><Badge className={`${statusColors[c.status] || ''} text-xs rounded-sm capitalize`}>{c.status?.replace('_', ' ')}</Badge></TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-1">
+                          {hasPermission('hrms', 'edit') && <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => editContractor(c)}><Edit3 className="w-3.5 h-3.5" /></Button>}
+                          {hasPermission('hrms', 'delete') && <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-500 hover:text-red-600" onClick={() => deleteContractor(c.id)}><Trash2 className="w-3.5 h-3.5" /></Button>}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </Card>
@@ -411,13 +559,108 @@ export default function HRMS() {
           </Card>
         </TabsContent>
 
-        {/* ===== ROLES & PERMISSIONS ===== */}
-        {user?.role === 'admin' && (
-          <TabsContent value="roles" className="space-y-4">
-            <RolesManager api={api} onRolesChange={fetchData} />
-          </TabsContent>
-        )}
       </Tabs>
+
+      {/* Contractor Dialog */}
+      <Dialog open={isContractorDialogOpen} onOpenChange={v => { setIsContractorDialogOpen(v); if (!v) { setEditingContractor(null); setContractorForm(emptyContractorForm); setNewRoleName(''); } }}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader><DialogTitle className="text-lg font-bold uppercase">{editingContractor ? 'Edit Contractor' : 'Add Contractor'}</DialogTitle></DialogHeader>
+          <form onSubmit={handleContractorSubmit} className="space-y-4 mt-2">
+            {/* Basic Info */}
+            <div className="grid grid-cols-2 gap-3">
+              <Fld label="Contractor Name *" value={contractorForm.name} onChange={v => setContractorForm(f => ({ ...f, name: v }))} />
+              <Fld label="Contractor Code *" value={contractorForm.contractor_code} onChange={v => setContractorForm(f => ({ ...f, contractor_code: v }))} mono />
+              <Fld label="Phone" value={contractorForm.phone} onChange={v => setContractorForm(f => ({ ...f, phone: v }))} />
+              <Fld label="Email" value={contractorForm.email} onChange={v => setContractorForm(f => ({ ...f, email: v }))} />
+              <Fld label="Address" value={contractorForm.address} onChange={v => setContractorForm(f => ({ ...f, address: v }))} />
+              <Fld label="City" value={contractorForm.city} onChange={v => setContractorForm(f => ({ ...f, city: v }))} />
+              <Fld label="GSTIN" value={contractorForm.gstin} onChange={v => setContractorForm(f => ({ ...f, gstin: v }))} mono />
+              <div className="space-y-1.5">
+                <Label className="text-xs">Trade / Specialization</Label>
+                <Select value={contractorForm.trade} onValueChange={v => setContractorForm(f => ({ ...f, trade: v }))}>
+                  <SelectTrigger className="rounded-sm text-sm"><SelectValue placeholder="Select trade" /></SelectTrigger>
+                  <SelectContent>
+                    {['Civil', 'Structural', 'MEP', 'Electrical', 'Plumbing', 'Painting', 'Flooring', 'Roofing', 'Interiors', 'Other'].map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Contract Details */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Project</Label>
+                <Select value={contractorForm.project_id} onValueChange={v => setContractorForm(f => ({ ...f, project_id: v }))}>
+                  <SelectTrigger className="rounded-sm text-sm"><SelectValue placeholder="Select project" /></SelectTrigger>
+                  <SelectContent>{projects.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Status</Label>
+                <Select value={contractorForm.status} onValueChange={v => setContractorForm(f => ({ ...f, status: v }))}>
+                  <SelectTrigger className="rounded-sm text-sm"><SelectValue /></SelectTrigger>
+                  <SelectContent>{['active','completed','on_hold','terminated'].map(s => <SelectItem key={s} value={s} className="capitalize">{s.replace('_',' ')}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <Fld label="Contract Value (₹) *" type="number" value={contractorForm.contract_value} onChange={v => setContractorForm(f => ({ ...f, contract_value: v }))} />
+              <Fld label="Start Date" type="date" value={contractorForm.start_date} onChange={v => setContractorForm(f => ({ ...f, start_date: v }))} />
+              <Fld label="End Date" type="date" value={contractorForm.end_date} onChange={v => setContractorForm(f => ({ ...f, end_date: v }))} />
+            </div>
+
+            {/* Roles Section */}
+            <div className="space-y-2">
+              <Label className="text-xs font-semibold uppercase tracking-wide">Roles / Categories</Label>
+
+              {/* Added roles list */}
+              {contractorForm.roles.length > 0 && (
+                <div className="space-y-1.5">
+                  {contractorForm.roles.map((role, idx) => (
+                    <div key={idx} className="flex items-center gap-2 bg-muted/40 rounded-sm px-3 py-1.5">
+                      <span className="flex-1 text-sm font-medium">{role.category}</span>
+                      <Button type="button" variant="ghost" size="sm" className="h-6 w-6 p-0 text-red-500 hover:text-red-600" onClick={() => removeContractorRole(idx)}><X className="w-3 h-3" /></Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Select from existing */}
+              <Select value="" onValueChange={v => { if (v) { addContractorRoleByName(v); } }}>
+                <SelectTrigger className="rounded-sm text-sm"><SelectValue placeholder="Select category" /></SelectTrigger>
+                <SelectContent>
+                  {CONTRACTOR_ROLES_DEFAULT.filter(r => !contractorForm.roles.find(role => role.category === r)).map(r => (
+                    <SelectItem key={r} value={r}>{r}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              {/* Add new custom category */}
+              <div className="flex gap-2">
+                <Input
+                  value={newRoleName}
+                  onChange={e => setNewRoleName(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addContractorRoleByName(newRoleName); } }}
+                  placeholder="New category name (e.g. Mason)"
+                  className="rounded-sm text-sm"
+                />
+                <Button type="button" variant="outline" className="rounded-sm shrink-0 px-3" onClick={() => addContractorRoleByName(newRoleName)}>
+                  <Plus className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+
+            {/* Notes */}
+            <div className="space-y-1.5">
+              <Label className="text-xs">Notes</Label>
+              <Input value={contractorForm.notes} onChange={e => setContractorForm(f => ({ ...f, notes: e.target.value }))} placeholder="Additional notes..." className="rounded-sm text-sm" />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button type="button" variant="outline" className="rounded-sm" onClick={() => setIsContractorDialogOpen(false)}>Cancel</Button>
+              <Button type="submit" className="action-btn-accent rounded-sm" disabled={formLoading}>{formLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : editingContractor ? 'Update' : 'Add Contractor'}</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* Employee Dialog */}
       <Dialog open={isEmployeeDialogOpen} onOpenChange={v => { setIsEmployeeDialogOpen(v); if (!v) setEditingEmployee(null); }}>

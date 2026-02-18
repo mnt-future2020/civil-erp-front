@@ -3,7 +3,7 @@ import {
   Plus, Search, Building2, Phone, Mail, MapPin, FileText, Truck, Loader2,
   Star, Eye, Edit3, Trash2, ArrowLeft, CheckCircle2, Clock, Package,
   Filter, IndianRupee, BarChart3, XCircle, ArrowUpRight, ShoppingCart, Download,
-  ChevronDown, Check
+  ChevronDown, ChevronLeft, ChevronRight, Check, Share2
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
@@ -46,6 +46,7 @@ export default function Procurement() {
   const [dashboard, setDashboard] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
+  const [showInactive, setShowInactive] = useState(false);
   const [poStatusFilter, setPoStatusFilter] = useState('all');
   const [isVendorDialogOpen, setIsVendorDialogOpen] = useState(false);
   const [isPODialogOpen, setIsPODialogOpen] = useState(false);
@@ -75,6 +76,13 @@ export default function Procurement() {
 
   const [poStatusLoading, setPoStatusLoading] = useState(null); // poId being updated
 
+  // All vendors for dropdown lookups (not paginated)
+  const [allVendors, setAllVendors] = useState([]);
+  // Pagination metadata per tab
+  const [vendorMeta, setVendorMeta] = useState({ page: 1, pages: 1, total: 0 });
+  const [poMeta, setPoMeta] = useState({ page: 1, pages: 1, total: 0 });
+  const [grnMeta, setGrnMeta] = useState({ page: 1, pages: 1, total: 0 });
+
 
   useEffect(() => { fetchData(); }, []);
 
@@ -89,14 +97,51 @@ export default function Procurement() {
     }
   }, [poForm.project_id]);
 
+  // ── Individual paginated fetch helpers ─────────────────────
+  const _fetchVendors = async (page = 1, cat = categoryFilter, inactive = showInactive) => {
+    const params = { page, limit: 20 };
+    if (cat !== 'all') params.category = cat;
+    if (inactive) params.show_inactive = true;
+    const res = await api.get('/vendors', { params });
+    setVendors(res.data.data || []);
+    setVendorMeta({ page: res.data.page, pages: res.data.pages, total: res.data.total });
+  };
+
+  const _fetchAllVendors = async () => {
+    const res = await api.get('/vendors', { params: { page: 1, limit: 1000 } });
+    setAllVendors(res.data.data || []);
+  };
+
+  const _fetchPOs = async (page = 1, status = poStatusFilter) => {
+    const params = { page, limit: 10 };
+    if (status !== 'all') params.status = status;
+    const res = await api.get('/purchase-orders', { params });
+    setPurchaseOrders(res.data.data || []);
+    setPoMeta({ page: res.data.page, pages: res.data.pages, total: res.data.total });
+  };
+
+  const _fetchGrns = async (page = 1) => {
+    const res = await api.get('/grn', { params: { page, limit: 10 } });
+    setGrns(res.data.data || []);
+    setGrnMeta({ page: res.data.page, pages: res.data.pages, total: res.data.total });
+  };
+
+  const _fetchDashboard = async () => {
+    const res = await api.get('/procurement/dashboard');
+    setDashboard(res.data);
+  };
+
   const fetchData = async () => {
     try {
-      const [vRes, poRes, grnRes, pRes, dRes] = await Promise.all([
-        api.get('/vendors'), api.get('/purchase-orders'), api.get('/grn'),
-        api.get('/projects?limit=1000'), api.get('/procurement/dashboard')
+      const pRes = await api.get('/projects?limit=1000');
+      setProjects(pRes.data.data || []);
+      await Promise.all([
+        _fetchVendors(1, 'all'),
+        _fetchAllVendors(),
+        _fetchPOs(1, 'all'),
+        _fetchGrns(1),
+        _fetchDashboard(),
       ]);
-      setVendors(vRes.data); setPurchaseOrders(poRes.data); setGrns(grnRes.data);
-      setProjects(pRes.data.data); setDashboard(dRes.data);
     } catch { toast.error('Failed to load procurement data'); }
     finally { setLoading(false); }
   };
@@ -104,16 +149,42 @@ export default function Procurement() {
   // Vendor CRUD
   const handleVendorSubmit = async (e) => {
     e.preventDefault(); setFormLoading(true);
+    const isEdit = !!selectedVendor;
+    const currentPage = vendorMeta.page;
     try {
-      if (selectedVendor) { await api.put(`/vendors/${selectedVendor.id}`, vendorForm); toast.success('Vendor updated'); }
+      if (isEdit) { await api.put(`/vendors/${selectedVendor.id}`, vendorForm); toast.success('Vendor updated'); }
       else { await api.post('/vendors', vendorForm); toast.success('Vendor created'); }
-      setIsVendorDialogOpen(false); setSelectedVendor(null); resetVendorForm(); fetchData();
+      setIsVendorDialogOpen(false); setSelectedVendor(null); resetVendorForm();
+      await Promise.all([_fetchVendors(isEdit ? currentPage : 1, categoryFilter), _fetchAllVendors()]);
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); } finally { setFormLoading(false); }
   };
   const resetVendorForm = () => setVendorForm({ name: '', gstin: '', pan: '', address: '', city: '', state: 'Tamil Nadu', pincode: '', contact_person: '', phone: '', email: '', category: 'material' });
   const editVendor = (v) => { setSelectedVendor(v); setVendorForm({ name: v.name, gstin: v.gstin || '', pan: v.pan || '', address: v.address, city: v.city, state: v.state, pincode: v.pincode, contact_person: v.contact_person, phone: v.phone, email: v.email, category: v.category }); setIsVendorDialogOpen(true); };
-  const rateVendor = async (vid, rating) => { try { await api.patch(`/vendors/${vid}/rating`, { rating }); toast.success('Rating updated'); fetchData(); } catch { toast.error('Failed'); } };
-  const deactivateVendor = async (vid) => { try { await api.patch(`/vendors/${vid}/deactivate`); toast.success('Vendor deactivated'); setVendorDetail(null); fetchData(); } catch { toast.error('Failed'); } };
+  const rateVendor = async (vid, rating) => {
+    try {
+      await api.patch(`/vendors/${vid}/rating`, { rating });
+      toast.success(rating > 0 ? 'Rating updated' : 'Rating cleared');
+      const update = v => v.id === vid ? { ...v, rating } : v;
+      setVendors(prev => prev.map(update));
+      setAllVendors(prev => prev.map(update));
+    } catch { toast.error('Failed'); }
+  };
+  const deactivateVendor = async (vid) => {
+    try {
+      await api.patch(`/vendors/${vid}/deactivate`);
+      toast.success('Vendor deactivated');
+      setVendorDetail(null);
+      await Promise.all([_fetchVendors(1, categoryFilter, showInactive), _fetchAllVendors()]);
+    } catch { toast.error('Failed'); }
+  };
+  const reactivateVendor = async (vid) => {
+    try {
+      await api.patch(`/vendors/${vid}/reactivate`);
+      toast.success('Vendor reactivated');
+      setVendorDetail(null);
+      await Promise.all([_fetchVendors(1, categoryFilter, showInactive), _fetchAllVendors()]);
+    } catch { toast.error('Failed'); }
+  };
   const viewVendorDetail = async (vid) => { try { const res = await api.get(`/vendors/${vid}/detail`); setVendorDetail(res.data); } catch { toast.error('Failed'); } };
 
   // PO CRUD
@@ -125,7 +196,7 @@ export default function Procurement() {
       toast.success('PO created'); setIsPODialogOpen(false);
       setProjectInventory([]);
       setPoForm({ project_id: '', vendor_id: '', po_date: new Date().toISOString().slice(0, 10), delivery_date: '', terms: '', items: [{ description: '', unit: '', quantity: '', rate: '', gst_rate: 18 }] });
-      fetchData();
+      await Promise.all([_fetchPOs(1, poStatusFilter), _fetchDashboard()]);
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); } finally { setFormLoading(false); }
   };
   const addPOItem = () => setPoForm(f => ({ ...f, items: [...f.items, { description: '', unit: '', quantity: '', rate: '', gst_rate: 18 }] }));
@@ -142,7 +213,7 @@ export default function Procurement() {
     try {
       await api.patch(`/purchase-orders/${poId}/status`, { status });
       toast.success(`PO ${status}`);
-      fetchData();
+      await Promise.all([_fetchPOs(poMeta.page, poStatusFilter), _fetchDashboard()]);
       if (poDetail) viewPODetail(poId);
     } catch { toast.error('Failed'); }
     finally { setPoStatusLoading(null); }
@@ -156,7 +227,7 @@ export default function Procurement() {
       toast.success('PO deleted');
       setPoDetail(null);
       setDeletePODialogOpen(false);
-      fetchData();
+      await Promise.all([_fetchPOs(1, poStatusFilter), _fetchDashboard()]);
     } catch { toast.error('Failed'); }
     finally { setIsDeletingPO(false); }
   };
@@ -173,23 +244,23 @@ export default function Procurement() {
     try {
       const items = grnForm.items.map(i => ({ po_item_index: i.po_item_index, received_quantity: parseFloat(i.received_quantity) || 0, remarks: i.remarks }));
       await api.post('/grn', { po_id: grnForm.po_id, grn_date: grnForm.grn_date, items, notes: grnForm.notes });
-      toast.success('GRN created'); setIsGrnDialogOpen(false); fetchData();
+      toast.success('GRN created'); setIsGrnDialogOpen(false);
+      await _fetchGrns(grnMeta.page);
       if (poDetail) viewPODetail(grnForm.po_id);
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); } finally { setFormLoading(false); }
   };
 
+  // Category filter is server-side; only apply text search client-side
   const filteredVendors = useMemo(() => vendors.filter(v => {
-    if (categoryFilter !== 'all' && v.category !== categoryFilter) return false;
     if (searchQuery && !v.name.toLowerCase().includes(searchQuery.toLowerCase()) && !v.city.toLowerCase().includes(searchQuery.toLowerCase())) return false;
     return true;
-  }), [vendors, categoryFilter, searchQuery]);
+  }), [vendors, searchQuery]);
 
-  const filteredPOs = useMemo(() => purchaseOrders.filter(po => {
-    if (poStatusFilter !== 'all' && po.status !== poStatusFilter) return false;
-    return true;
-  }), [purchaseOrders, poStatusFilter]);
+  // PO status filter is now server-side; purchaseOrders already filtered
+  const filteredPOs = purchaseOrders;
 
-  const getVendorName = (vid) => vendors.find(v => v.id === vid)?.name || '-';
+  // Use allVendors for lookups (not affected by pagination)
+  const getVendorName = (vid) => allVendors.find(v => v.id === vid)?.name || '-';
   const getProjectName = (pid) => projects.find(p => p.id === pid)?.name || '-';
   const ds = dashboard || {};
 
@@ -212,15 +283,15 @@ export default function Procurement() {
       {/* Tabs */}
       <Tabs defaultValue="vendors" className="space-y-4">
         <TabsList className="rounded-sm">
-          <TabsTrigger value="vendors" className="rounded-sm gap-1.5" data-testid="vendors-tab"><Building2 className="w-4 h-4" />Vendors ({vendors.length})</TabsTrigger>
-          <TabsTrigger value="purchase-orders" className="rounded-sm gap-1.5" data-testid="po-tab"><ShoppingCart className="w-4 h-4" />POs ({purchaseOrders.length})</TabsTrigger>
-          <TabsTrigger value="grn" className="rounded-sm gap-1.5" data-testid="grn-tab"><Package className="w-4 h-4" />GRN ({grns.length})</TabsTrigger>
+          <TabsTrigger value="vendors" className="rounded-sm gap-1.5" data-testid="vendors-tab"><Building2 className="w-4 h-4" />Vendors ({vendorMeta.total})</TabsTrigger>
+          <TabsTrigger value="purchase-orders" className="rounded-sm gap-1.5" data-testid="po-tab"><ShoppingCart className="w-4 h-4" />POs ({poMeta.total})</TabsTrigger>
+          <TabsTrigger value="grn" className="rounded-sm gap-1.5" data-testid="grn-tab"><Package className="w-4 h-4" />GRN ({grnMeta.total})</TabsTrigger>
         </TabsList>
 
         {/* ===== VENDORS ===== */}
         <TabsContent value="vendors" className="space-y-4">
           {vendorDetail ? (
-            <VendorDetailView detail={vendorDetail} onBack={() => setVendorDetail(null)} onEdit={editVendor} onRate={rateVendor} onDeactivate={deactivateVendor} onViewPO={viewPODetail} canEdit={hasPermission('procurement', 'edit')} />
+            <VendorDetailView detail={vendorDetail} onBack={() => setVendorDetail(null)} onEdit={editVendor} onRate={rateVendor} onDeactivate={deactivateVendor} onReactivate={reactivateVendor} onViewPO={viewPODetail} canEdit={hasPermission('procurement', 'edit')} />
           ) : (
             <>
               <div className="flex flex-wrap gap-3 justify-between">
@@ -229,14 +300,27 @@ export default function Procurement() {
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                     <Input placeholder="Search vendors..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pl-10 rounded-sm" data-testid="vendor-search" />
                   </div>
-                  <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                  <Select value={categoryFilter} onValueChange={(val) => { setCategoryFilter(val); _fetchVendors(1, val); }}>
                     <SelectTrigger className="w-40 rounded-sm text-sm" data-testid="vendor-category-filter"><Filter className="w-4 h-4 mr-1" /><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Categories</SelectItem>
-                      {[...new Set(vendors.map(v => v.category).filter(Boolean))].sort().map(c => <SelectItem key={c} value={c} className="capitalize">{c}</SelectItem>)}
+                      {[...new Set(allVendors.map(v => v.category).filter(Boolean))].sort().map(c => <SelectItem key={c} value={c} className="capitalize">{c}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
+                <Button
+                  variant={showInactive ? 'secondary' : 'outline'}
+                  size="sm"
+                  className="rounded-sm text-xs gap-1.5 shrink-0"
+                  onClick={() => {
+                    const next = !showInactive;
+                    setShowInactive(next);
+                    _fetchVendors(1, categoryFilter, next);
+                  }}
+                >
+                  <XCircle className="w-3.5 h-3.5" />
+                  {showInactive ? 'Showing Inactive' : 'Show Inactive'}
+                </Button>
                 {hasPermission('procurement', 'edit') && (
                   <Button className="action-btn action-btn-accent" onClick={() => { setSelectedVendor(null); resetVendorForm(); setIsVendorDialogOpen(true); }} data-testid="create-vendor-btn"><Plus className="w-4 h-4" />Add Vendor</Button>
                 )}
@@ -245,10 +329,16 @@ export default function Procurement() {
                 {filteredVendors.length === 0 ? (
                   <Card className="col-span-full rounded-sm"><CardContent className="text-center py-12 text-muted-foreground"><Building2 className="w-10 h-10 mx-auto mb-2 opacity-30" /><p>No vendors found</p></CardContent></Card>
                 ) : filteredVendors.map(v => (
-                  <Card key={v.id} className="rounded-sm card-hover cursor-pointer group" onClick={() => viewVendorDetail(v.id)} data-testid={`vendor-card-${v.id}`}>
+                  <Card key={v.id} className={`rounded-sm card-hover cursor-pointer group ${!v.is_active ? 'opacity-60' : ''}`} onClick={() => viewVendorDetail(v.id)} data-testid={`vendor-card-${v.id}`}>
                     <CardContent className="p-4">
                       <div className="flex items-start justify-between mb-2">
-                        <div><p className="font-semibold">{v.name}</p><Badge variant="outline" className="text-[10px] rounded-sm capitalize mt-1">{v.category}</Badge></div>
+                        <div>
+                          <p className="font-semibold">{v.name}</p>
+                          <div className="flex gap-1 mt-1">
+                            <Badge variant="outline" className="text-[10px] rounded-sm capitalize">{v.category}</Badge>
+                            {!v.is_active && <Badge className="text-[10px] rounded-sm bg-red-100 text-red-600">Inactive</Badge>}
+                          </div>
+                        </div>
                         {v.rating > 0 && <div className="flex items-center gap-0.5 text-amber-500"><Star className="w-3.5 h-3.5 fill-current" /><span className="text-sm font-bold">{v.rating}</span></div>}
                       </div>
                       <div className="space-y-1 text-sm text-muted-foreground">
@@ -260,6 +350,7 @@ export default function Procurement() {
                   </Card>
                 ))}
               </div>
+              <Paginator meta={vendorMeta} onPageChange={(p) => _fetchVendors(p, categoryFilter)} />
             </>
           )}
         </TabsContent>
@@ -276,13 +367,14 @@ export default function Procurement() {
               onDelete={(id) => { setPoToDelete(id); setDeletePODialogOpen(true); }}
               onCreateGRN={openGrnDialog}
               onPrint={() => printPO(poDetail)}
+              onShare={() => sharePO(poDetail)}
               canEdit={hasPermission('procurement', 'edit')}
               statusLoading={poStatusLoading}
             />
           ) : (
             <>
               <div className="flex justify-between items-center">
-                <Select value={poStatusFilter} onValueChange={setPoStatusFilter}>
+                <Select value={poStatusFilter} onValueChange={(val) => { setPoStatusFilter(val); _fetchPOs(1, val); }}>
                   <SelectTrigger className="w-40 rounded-sm text-sm" data-testid="po-status-filter"><SelectValue placeholder="All Status" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Status</SelectItem>
@@ -304,8 +396,8 @@ export default function Procurement() {
                       <TableRow key={po.id} data-testid={`po-row-${po.id}`}>
                         <TableCell className="font-mono text-sm font-medium">{po.po_number}</TableCell>
                         <TableCell className="text-sm">{formatDate(po.po_date)}</TableCell>
-                        <TableCell className="text-sm">{getVendorName(po.vendor_id)}</TableCell>
-                        <TableCell className="text-sm max-w-[120px] truncate">{getProjectName(po.project_id)}</TableCell>
+                        <TableCell className="text-sm">{po.vendor_name || getVendorName(po.vendor_id)}</TableCell>
+                        <TableCell className="text-sm max-w-[120px] truncate">{po.project_name || getProjectName(po.project_id)}</TableCell>
                         <TableCell className="text-right font-semibold text-sm">{formatCurrency(po.total)}</TableCell>
                         <TableCell><Badge className={`${poStatusColors[po.status]} text-xs rounded-sm`}>{poStatusLabels[po.status] || po.status}</Badge></TableCell>
                         <TableCell className="text-right">
@@ -328,6 +420,7 @@ export default function Procurement() {
                   </TableBody>
                 </Table>
               </Card>
+              <Paginator meta={poMeta} onPageChange={(p) => _fetchPOs(p, poStatusFilter)} />
             </>
           )}
         </TabsContent>
@@ -335,10 +428,10 @@ export default function Procurement() {
         {/* ===== GRN ===== */}
         <TabsContent value="grn" className="space-y-4">
           {grnDetail ? (
-            <GRNDetailView detail={grnDetail} onBack={() => setGrnDetail(null)} onPrint={() => printGRN(grnDetail)} />
+            <GRNDetailView detail={grnDetail} onBack={() => setGrnDetail(null)} onPrint={() => printGRN(grnDetail)} onShare={() => shareGRN(grnDetail)} />
           ) : (
             <>
-              <div className="text-sm text-muted-foreground">{grns.length} goods receipt notes — click a row to view details</div>
+              <div className="text-sm text-muted-foreground">{grnMeta.total} goods receipt notes — click a row to view details</div>
               <Card className="rounded-sm">
                 <Table>
                   <TableHeader><TableRow>
@@ -347,25 +440,23 @@ export default function Procurement() {
                   <TableBody>
                     {grns.length === 0 ? (
                       <TableRow><TableCell colSpan={7} className="text-center py-10 text-muted-foreground"><Package className="w-8 h-8 mx-auto mb-2 opacity-30" /><p>No GRNs yet</p></TableCell></TableRow>
-                    ) : grns.map(g => {
-                      const po = purchaseOrders.find(p => p.id === g.po_id);
-                      return (
-                        <TableRow key={g.id} data-testid={`grn-row-${g.id}`} className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/30" onClick={() => viewGrnDetail(g.id)}>
-                          <TableCell className="font-mono text-sm font-medium">{g.grn_number}</TableCell>
-                          <TableCell className="text-sm">{formatDate(g.grn_date)}</TableCell>
-                          <TableCell className="text-sm font-mono">{po?.po_number || g.po_id.slice(0, 8)}</TableCell>
-                          <TableCell className="text-sm">{(g.items || []).length} items</TableCell>
-                          <TableCell><Badge className="bg-emerald-100 text-emerald-700 text-xs rounded-sm">{g.status}</Badge></TableCell>
-                          <TableCell className="text-sm max-w-[160px] truncate">{g.notes || '-'}</TableCell>
-                          <TableCell className="text-right" onClick={e => e.stopPropagation()}>
-                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => viewGrnDetail(g.id)}><Eye className="w-3.5 h-3.5" /></Button>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
+                    ) : grns.map(g => (
+                      <TableRow key={g.id} data-testid={`grn-row-${g.id}`} className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/30" onClick={() => viewGrnDetail(g.id)}>
+                        <TableCell className="font-mono text-sm font-medium">{g.grn_number}</TableCell>
+                        <TableCell className="text-sm">{formatDate(g.grn_date)}</TableCell>
+                        <TableCell className="text-sm font-mono">{g.po_number || g.po_id?.slice(0, 8)}</TableCell>
+                        <TableCell className="text-sm">{(g.items || []).length} items</TableCell>
+                        <TableCell><Badge className="bg-emerald-100 text-emerald-700 text-xs rounded-sm">{g.status}</Badge></TableCell>
+                        <TableCell className="text-sm max-w-[160px] truncate">{g.notes || '-'}</TableCell>
+                        <TableCell className="text-right" onClick={e => e.stopPropagation()}>
+                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => viewGrnDetail(g.id)}><Eye className="w-3.5 h-3.5" /></Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
                   </TableBody>
                 </Table>
               </Card>
+              <Paginator meta={grnMeta} onPageChange={(p) => _fetchGrns(p)} />
             </>
           )}
         </TabsContent>
@@ -548,10 +639,12 @@ export default function Procurement() {
                   </div>
                   <Input className="col-span-2 rounded-sm text-sm" type="number" min="0" placeholder="Qty *" value={item.quantity} onChange={e => updatePOItem(i, 'quantity', e.target.value)} required />
                   <Input className="col-span-2 rounded-sm text-sm" type="number" min="0" placeholder="Rate" value={item.rate} onChange={e => updatePOItem(i, 'rate', e.target.value)} />
-                  <div className="col-span-2 relative">
-                    <Input className="rounded-sm text-sm pr-6" type="number" min="0" max="100" step="0.01" placeholder="GST%" value={item.gst_rate} onChange={e => updatePOItem(i, 'gst_rate', e.target.value)} />
-                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
-                  </div>
+                  <Select value={String(item.gst_rate)} onValueChange={v => updatePOItem(i, 'gst_rate', +v)}>
+                    <SelectTrigger className="col-span-2 rounded-sm text-sm"><SelectValue placeholder="GST%" /></SelectTrigger>
+                    <SelectContent>
+                      {[0, 5, 12, 18, 28].map(r => <SelectItem key={r} value={String(r)}>{r}%</SelectItem>)}
+                    </SelectContent>
+                  </Select>
                   <Button type="button" variant="ghost" size="sm" onClick={() => removePOItem(i)} disabled={poForm.items.length === 1} className="col-span-1 text-red-400 h-9"><XCircle className="w-4 h-4" /></Button>
                 </div>
               ))}
@@ -615,7 +708,7 @@ function KpiCard({ label, value, icon: Icon, color, small }) {
   );
 }
 
-function VendorDetailView({ detail, onBack, onEdit, onRate, onDeactivate, onViewPO, canEdit }) {
+function VendorDetailView({ detail, onBack, onEdit, onRate, onDeactivate, onReactivate, onViewPO, canEdit }) {
   const { vendor, purchase_orders: pos, stats } = detail;
   const [rating, setRating] = useState(vendor.rating || 0);
   return (
@@ -623,14 +716,28 @@ function VendorDetailView({ detail, onBack, onEdit, onRate, onDeactivate, onView
       <div className="flex items-center justify-between">
         <Button variant="ghost" size="sm" onClick={onBack} className="gap-1" data-testid="back-to-vendors-btn"><ArrowLeft className="w-4 h-4" />Back</Button>
         {canEdit && <div className="flex gap-2">
-          <Button variant="outline" size="sm" className="rounded-sm gap-1" onClick={() => onEdit(vendor)} data-testid="edit-vendor-btn"><Edit3 className="w-4 h-4" />Edit</Button>
-          <Button variant="outline" size="sm" className="rounded-sm gap-1 text-red-500" onClick={() => onDeactivate(vendor.id)} data-testid="deactivate-vendor-btn"><XCircle className="w-4 h-4" />Deactivate</Button>
+          {vendor.is_active !== false && (
+            <Button variant="outline" size="sm" className="rounded-sm gap-1" onClick={() => onEdit(vendor)} data-testid="edit-vendor-btn"><Edit3 className="w-4 h-4" />Edit</Button>
+          )}
+          {vendor.is_active === false ? (
+            <Button variant="outline" size="sm" className="rounded-sm gap-1 text-emerald-600" onClick={() => onReactivate(vendor.id)} data-testid="reactivate-vendor-btn"><CheckCircle2 className="w-4 h-4" />Reactivate</Button>
+          ) : (
+            <Button variant="outline" size="sm" className="rounded-sm gap-1 text-red-500" onClick={() => onDeactivate(vendor.id)} data-testid="deactivate-vendor-btn"><XCircle className="w-4 h-4" />Deactivate</Button>
+          )}
         </div>}
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card className="rounded-sm lg:col-span-2">
-          <CardHeader className="pb-3"><div className="flex items-start justify-between"><div><CardTitle className="text-lg">{vendor.name}</CardTitle><CardDescription><Badge variant="outline" className="capitalize rounded-sm">{vendor.category}</Badge></CardDescription></div>
-            {canEdit && <div className="flex gap-0.5">{[1, 2, 3, 4, 5].map(s => <button key={s} onClick={() => { setRating(s); onRate(vendor.id, s); }} data-testid={`star-${s}`}><Star className={`w-5 h-5 ${s <= rating ? 'text-amber-400 fill-amber-400' : 'text-slate-300'}`} /></button>)}</div>}
+          <CardHeader className="pb-3"><div className="flex items-start justify-between"><div><CardTitle className="text-lg">{vendor.name}</CardTitle><CardDescription className="flex gap-1 mt-1"><Badge variant="outline" className="capitalize rounded-sm">{vendor.category}</Badge>{vendor.is_active === false && <Badge className="rounded-sm bg-red-100 text-red-600 text-[10px]">Inactive</Badge>}</CardDescription></div>
+            {canEdit && (
+              <div className="flex gap-0.5" title="Click current star to clear rating">
+                {[1, 2, 3, 4, 5].map(s => (
+                  <button key={s} onClick={() => { const nr = s === rating ? 0 : s; setRating(nr); onRate(vendor.id, nr); }} data-testid={`star-${s}`}>
+                    <Star className={`w-5 h-5 transition-colors ${s <= rating ? 'text-amber-400 fill-amber-400' : 'text-slate-300 hover:text-amber-300'}`} />
+                  </button>
+                ))}
+              </div>
+            )}
           </div></CardHeader>
           <CardContent className="space-y-3 text-sm">
             {[['Contact', vendor.contact_person], ['Phone', vendor.phone], ['Email', vendor.email], ['Address', `${vendor.address}, ${vendor.city}, ${vendor.state} - ${vendor.pincode}`], ['GSTIN', vendor.gstin || '-'], ['PAN', vendor.pan || '-']].map(([k, v]) => (
@@ -655,7 +762,7 @@ function VendorDetailView({ detail, onBack, onEdit, onRate, onDeactivate, onView
   );
 }
 
-function PODetailView({ detail, vendors, projects, onBack, onStatusChange, onDelete, onCreateGRN, onPrint, canEdit, statusLoading }) {
+function PODetailView({ detail, vendors, projects, onBack, onStatusChange, onDelete, onCreateGRN, onPrint, onShare, canEdit, statusLoading }) {
   const { po, vendor, project, grns: poGrns, matching } = detail;
   const isUpdating = statusLoading === po.id;
   return (
@@ -663,6 +770,7 @@ function PODetailView({ detail, vendors, projects, onBack, onStatusChange, onDel
       <div className="flex items-center justify-between">
         <Button variant="ghost" size="sm" onClick={onBack} className="gap-1" data-testid="back-to-pos-btn"><ArrowLeft className="w-4 h-4" />Back</Button>
         <div className="flex gap-2">
+          <Button size="sm" variant="outline" className="rounded-sm gap-1" onClick={onShare}><Share2 className="w-4 h-4" />Share</Button>
           <Button size="sm" variant="outline" className="rounded-sm gap-1" onClick={onPrint}><Download className="w-4 h-4" />Download PDF</Button>
           {canEdit && <>
             {po.status === 'approved' && (
@@ -735,15 +843,18 @@ function PODetailView({ detail, vendors, projects, onBack, onStatusChange, onDel
 }
 
 // ── GRN Detail View ───────────────────────────────────────
-function GRNDetailView({ detail, onBack, onPrint }) {
+function GRNDetailView({ detail, onBack, onPrint, onShare }) {
   const { grn, po, vendor, project } = detail;
   return (
     <div className="space-y-4" data-testid="grn-detail-view">
       <div className="flex items-center justify-between">
         <Button variant="ghost" size="sm" onClick={onBack} className="gap-1"><ArrowLeft className="w-4 h-4" />Back</Button>
-        <Button size="sm" variant="outline" className="rounded-sm gap-1" onClick={onPrint}>
-          <Download className="w-4 h-4" />Download PDF
-        </Button>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" className="rounded-sm gap-1" onClick={onShare}><Share2 className="w-4 h-4" />Share</Button>
+          <Button size="sm" variant="outline" className="rounded-sm gap-1" onClick={onPrint}>
+            <Download className="w-4 h-4" />Download PDF
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -812,6 +923,22 @@ function GRNDetailView({ detail, onBack, onPrint }) {
           </Card>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Pagination control ────────────────────────────────────
+function Paginator({ meta, onPageChange }) {
+  if (!meta || meta.pages <= 1) return null;
+  return (
+    <div className="flex items-center justify-center gap-3 mt-4">
+      <Button variant="outline" size="sm" className="rounded-sm h-8 w-8 p-0" disabled={meta.page === 1} onClick={() => onPageChange(meta.page - 1)}>
+        <ChevronLeft className="w-4 h-4" />
+      </Button>
+      <span className="text-sm text-muted-foreground">Page {meta.page} of {meta.pages} · {meta.total} total</span>
+      <Button variant="outline" size="sm" className="rounded-sm h-8 w-8 p-0" disabled={meta.page === meta.pages} onClick={() => onPageChange(meta.page + 1)}>
+        <ChevronRight className="w-4 h-4" />
+      </Button>
     </div>
   );
 }
@@ -929,4 +1056,43 @@ function printGRN(detail) {
     ${grn.notes ? `<div style="margin-top:16px;padding:10px;border:1px solid #e2e8f0;border-radius:4px"><label style="font-size:9px;text-transform:uppercase;color:#94a3b8">Notes</label><p style="margin-top:4px">${grn.notes}</p></div>` : ''}
     <div class="ftr">Generated from Civil ERP &nbsp;|&nbsp; ${new Date().toLocaleDateString('en-IN')}</div>
   </body></html>`);
+}
+
+// ── Share helpers ──────────────────────────────────────────
+function shareDoc(title, text) {
+  const url = window.location.href;
+  if (navigator.share) {
+    navigator.share({ title, text, url }).catch(() => {});
+  } else {
+    navigator.clipboard.writeText(text + '\n\n' + url)
+      .then(() => toast.success('Details copied to clipboard'))
+      .catch(() => toast.error('Could not copy to clipboard'));
+  }
+}
+
+function sharePO(detail) {
+  const { po, vendor, project } = detail;
+  const fmt = n => (n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
+  const text = [
+    `Purchase Order: ${po.po_number}`,
+    `Vendor: ${vendor?.name || '-'}`,
+    `Project: ${project?.name || '-'}`,
+    `PO Date: ${fmtDate(po.po_date)} | Delivery: ${fmtDate(po.delivery_date)}`,
+    `Total: ₹${fmt(po.total)}`,
+    `Status: ${(po.status || '').toUpperCase()}`,
+  ].join('\n');
+  shareDoc(po.po_number, text);
+}
+
+function shareGRN(detail) {
+  const { grn, po, vendor, project } = detail;
+  const text = [
+    `Goods Receipt Note: ${grn.grn_number}`,
+    `PO Reference: ${po?.po_number || '-'}`,
+    `Vendor: ${vendor?.name || '-'}`,
+    `Project: ${project?.name || '-'}`,
+    `GRN Date: ${fmtDate(grn.grn_date)}`,
+    `Items: ${(grn.items || []).length}`,
+  ].join('\n');
+  shareDoc(grn.grn_number, text);
 }

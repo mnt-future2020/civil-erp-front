@@ -5,6 +5,33 @@ const API_URL = process.env.REACT_APP_BACKEND_URL + '/api';
 
 const AuthContext = createContext(null);
 
+// ── Cookie helpers for token ───────────────────────────────
+const TOKEN_COOKIE = 'erp_token';
+const COOKIE_MAX_AGE = 60 * 60 * 24; // 24 hours
+
+function setTokenCookie(token) {
+  document.cookie = `${TOKEN_COOKIE}=${token}; path=/; max-age=${COOKIE_MAX_AGE}; SameSite=Strict`;
+}
+
+function getTokenCookie() {
+  const match = document.cookie.match(new RegExp('(^| )' + TOKEN_COOKIE + '=([^;]+)'));
+  return match ? match[2] : null;
+}
+
+function removeTokenCookie() {
+  document.cookie = `${TOKEN_COOKIE}=; path=/; max-age=0; SameSite=Strict`;
+}
+
+// ── Store only minimal user info ───────────────────────────
+function minimalUser(userData) {
+  return {
+    id: userData.id,
+    name: userData.name,
+    email: userData.email,
+    role: userData.role,
+  };
+}
+
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) {
@@ -15,7 +42,7 @@ export const useAuth = () => {
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
-  const [token, setToken] = useState(localStorage.getItem('erp_token'));
+  const [token, setToken] = useState(getTokenCookie);
   const [loading, setLoading] = useState(true);
   const [permissions, setPermissions] = useState(() => {
     const stored = localStorage.getItem('erp_permissions');
@@ -23,7 +50,7 @@ export const AuthProvider = ({ children }) => {
   });
 
   const logout = useCallback(() => {
-    localStorage.removeItem('erp_token');
+    removeTokenCookie();
     localStorage.removeItem('erp_user');
     localStorage.removeItem('erp_permissions');
     setToken(null);
@@ -45,7 +72,7 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     const initAuth = async () => {
-      const storedToken = localStorage.getItem('erp_token');
+      const storedToken = getTokenCookie();
       const storedUser = localStorage.getItem('erp_user');
 
       if (storedToken && storedUser) {
@@ -57,7 +84,10 @@ export const AuthProvider = ({ children }) => {
           const response = await axios.get(`${API_URL}/auth/me`, {
             headers: { Authorization: `Bearer ${storedToken}` }
           });
-          setUser(response.data);
+          // Store only minimal user data
+          const slim = minimalUser(response.data);
+          setUser(slim);
+          localStorage.setItem('erp_user', JSON.stringify(slim));
           await fetchPermissions(storedToken);
         } catch (error) {
           console.error('Auth verification failed:', error);
@@ -75,11 +105,14 @@ export const AuthProvider = ({ children }) => {
       const response = await axios.post(`${API_URL}/auth/login`, { email, password });
       const { access_token, user: userData } = response.data;
 
-      localStorage.setItem('erp_token', access_token);
-      localStorage.setItem('erp_user', JSON.stringify(userData));
+      // Token → cookie (not localStorage)
+      setTokenCookie(access_token);
+      // User → minimal fields only
+      const slim = minimalUser(userData);
+      localStorage.setItem('erp_user', JSON.stringify(slim));
 
       setToken(access_token);
-      setUser(userData);
+      setUser(slim);
       await fetchPermissions(access_token);
 
       return { success: true };
@@ -105,10 +138,10 @@ export const AuthProvider = ({ children }) => {
     baseURL: API_URL
   });
 
-  // Add token to every request dynamically
+  // Read token from cookie for every request
   api.interceptors.request.use(
     (config) => {
-      const currentToken = localStorage.getItem('erp_token');
+      const currentToken = getTokenCookie();
       if (currentToken) {
         config.headers.Authorization = `Bearer ${currentToken}`;
       }
@@ -123,7 +156,7 @@ export const AuthProvider = ({ children }) => {
       if (error.response?.status === 401) {
         logout();
       }
-      return Promise.reject(error);
+      return Promise.reject(error)
     }
   );
 

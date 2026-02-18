@@ -325,9 +325,9 @@ export default function Projects() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem>View Details</DropdownMenuItem>
-                      <DropdownMenuItem>Edit Project</DropdownMenuItem>
-                      <DropdownMenuItem>Add Task</DropdownMenuItem>
+                      <DropdownMenuItem onClick={(e) => { e.stopPropagation(); navigate(`/projects/${project.id}`); }}>View Details</DropdownMenuItem>
+                      <DropdownMenuItem onClick={(e) => { e.stopPropagation(); navigate(`/projects/${project.id}?action=edit`); }}>Edit Project</DropdownMenuItem>
+                      <DropdownMenuItem onClick={(e) => { e.stopPropagation(); navigate(`/projects/${project.id}?tab=tasks&action=add-task`); }}>Add Task</DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
@@ -362,11 +362,11 @@ export default function Projects() {
 
                 <div className="flex items-center justify-between pt-2 border-t">
                   <div>
-                    <p className="text-xs text-muted-foreground">Budget</p>
+                    <p className="text-xs text-muted-foreground">Credit</p>
                     <p className="font-semibold text-sm">{formatCurrency(project.budget)}</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-xs text-muted-foreground">Spent</p>
+                    <p className="text-xs text-muted-foreground">Debit</p>
                     <p className="font-semibold text-sm">{formatCurrency(project.actual_cost)}</p>
                   </div>
                   <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-accent transition-colors" />

@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, Edit3, Save, X, Plus, Trash2, Loader2,
   MapPin, Calendar, IndianRupee, Users, CheckCircle2,
   Clock, AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, BarChart3,
-  ListTodo, FileText, Wallet, CloudSun, HardHat,
-  Upload, Image, FileDown, Eye, Paperclip, FolderOpen
+  ListTodo, FileText, Wallet, CloudSun, HardHat, Wrench, Fuel, Camera,
+  Upload, Image, FileDown, Eye, Paperclip, FolderOpen, Briefcase, Package, Download, Share2
 } from 'lucide-react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { useAuth } from '../context/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -40,7 +42,9 @@ const taskStatusLabels = { pending: 'Pending', in_progress: 'In Progress', compl
 export default function ProjectDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { api, user, hasPermission } = useAuth();
+  const [activeTab, setActiveTab] = useState('overview');
   const [loading, setLoading] = useState(true);
   const [project, setProject] = useState(null);
   const [summary, setSummary] = useState(null);
@@ -60,6 +64,8 @@ export default function ProjectDetail() {
 
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [previewDoc, setPreviewDoc] = useState(null);
+  const [docCategoryFilter, setDocCategoryFilter] = useState('all');
+  const [viewDpr, setViewDpr] = useState(null);
 
   // Delete States
   const [deleteTaskDialogOpen, setDeleteTaskDialogOpen] = useState(false);
@@ -85,7 +91,7 @@ export default function ProjectDetail() {
         api.get(`/tasks?project_id=${id}`),
         api.get(`/dpr?project_id=${id}`),
         api.get(`/billing?project_id=${id}`),
-        api.get(`/documents?project_id=${id}`)
+        api.get(`/documents?project_id=${id}&exclude_category=dpr`)
       ]);
       setProject(projRes.data);
       setSummary(summRes.data);
@@ -101,6 +107,16 @@ export default function ProjectDetail() {
   }, [api, id, navigate]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  // Read ?tab=&action= params from Projects page quick-actions
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    const action = searchParams.get('action');
+    if (tab) setActiveTab(tab);
+    if (action === 'edit') setEditing(true);
+    if (action === 'add-task') { setEditingTask(null); setTaskDialogOpen(true); }
+    if (tab || action) setSearchParams({}, { replace: true });
+  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- Project Edit ---
   const handleSaveProject = async () => {
@@ -127,15 +143,15 @@ export default function ProjectDetail() {
     } catch { toast.error('Failed to update status'); }
   };
 
-  const handleProgressUpdate = async (progress, cost) => {
+  const handleProgressUpdate = async (cost) => {
     try {
-      const payload = { progress_percentage: parseFloat(progress) };
+      const payload = {};
       if (cost) payload.actual_cost = parseFloat(cost);
       await api.patch(`/projects/${id}/progress`, payload);
-      toast.success('Progress updated');
+      toast.success('Actual cost updated');
       setProgressDialogOpen(false);
       fetchAll();
-    } catch { toast.error('Failed to update progress'); }
+    } catch { toast.error('Failed to update'); }
   };
 
   // --- Tasks ---
@@ -192,7 +208,7 @@ export default function ProjectDetail() {
     formData.append('category', category);
     formData.append('description', description);
     try {
-      await api.post('/documents/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+      await api.post('/documents/upload', formData);
       toast.success('Document uploaded');
       setUploadDialogOpen(false);
       fetchAll();
@@ -285,7 +301,7 @@ export default function ProjectDetail() {
       </Card>
 
       {/* Tabs */}
-      <Tabs defaultValue="overview" className="space-y-4">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList className="rounded-sm">
           <TabsTrigger value="overview" className="rounded-sm gap-1.5" data-testid="tab-overview"><BarChart3 className="w-4 h-4" />Overview</TabsTrigger>
           <TabsTrigger value="tasks" className="rounded-sm gap-1.5" data-testid="tab-tasks"><ListTodo className="w-4 h-4" />Tasks ({tasks.length})</TabsTrigger>
@@ -462,52 +478,52 @@ export default function ProjectDetail() {
           {dprs.length === 0 ? (
             <Card className="rounded-sm"><CardContent className="text-center py-12 text-muted-foreground"><FileText className="w-10 h-10 mx-auto mb-2 opacity-30" /><p>No daily progress reports yet.</p></CardContent></Card>
           ) : (
-            <div className="space-y-3">
-              {[...dprs].reverse().slice((dprPage - 1) * DPR_PAGE_SIZE, dprPage * DPR_PAGE_SIZE).map((d) => (
-                <Card key={d.id} className="rounded-sm" data-testid={`dpr-card-${d.id}`}>
-                  <CardContent className="p-4">
-                    <div className="flex items-start justify-between mb-3">
-                      <div className="flex items-center gap-3">
-                        <div className="p-2 rounded-sm bg-blue-100"><Calendar className="w-4 h-4 text-blue-600" /></div>
-                        <div>
-                          <p className="font-semibold text-sm">{formatDate(d.date)}</p>
-                          {d.weather && <p className="text-xs text-muted-foreground flex items-center gap-1"><CloudSun className="w-3 h-3" />{d.weather}</p>}
-                        </div>
-                      </div>
-                      {d.labor_count > 0 && (
-                        <div className="flex flex-wrap gap-1 justify-end">
-                          {d.labor_entries?.length > 0
-                            ? d.labor_entries.map((le, i) => (
-                              <Badge key={i} variant="outline" className="gap-1 rounded-sm text-[10px]">
-                                <HardHat className="w-3 h-3" />{le.category_name}: {le.count}
-                              </Badge>
-                            ))
-                            : <Badge variant="outline" className="gap-1 rounded-sm"><HardHat className="w-3 h-3" />{d.labor_count} workers</Badge>
-                          }
-                        </div>
-                      )}
-                    </div>
-                    <div className="space-y-2 text-sm">
-                      <div><span className="text-muted-foreground font-medium">Work Done:</span> <span>{d.work_done}</span></div>
-                      {(d.materials_used_entries?.length > 0 || d.materials_used) && (
-                        <div>
-                          <span className="text-muted-foreground font-medium">Materials: </span>
-                          {d.materials_used_entries?.length > 0
-                            ? d.materials_used_entries.map((m, i) => (
-                              <span key={i} className="inline-block mr-2">{m.item_name} <strong>{m.quantity_used}{m.unit}</strong></span>
-                            ))
-                            : <span>{d.materials_used}</span>
-                          }
-                        </div>
-                      )}
-                      {d.sqft_completed != null && d.sqft_completed !== '' && <div><span className="text-muted-foreground font-medium">Area Completed:</span> <span>{d.sqft_completed} sq.ft</span></div>}
-                      {d.tomorrow_schedule && <div><span className="text-muted-foreground font-medium">Tomorrow's Schedule:</span> <span>{d.tomorrow_schedule}</span></div>}
-                      {d.issues && <div className="flex items-start gap-1 text-amber-600"><AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" /><span>{d.issues}</span></div>}
-                      {d.notes && <div className="text-muted-foreground italic">{d.notes}</div>}
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+            <div className="border rounded-sm overflow-hidden">
+              <Table className="text-sm">
+                <TableHeader>
+                  <TableRow className="bg-blue-50">
+                    <TableHead className="h-9 text-xs font-semibold text-blue-800">#</TableHead>
+                    <TableHead className="h-9 text-xs font-semibold text-blue-800">Date</TableHead>
+                    <TableHead className="h-9 text-xs font-semibold text-blue-800">Weather</TableHead>
+                    <TableHead className="h-9 text-xs font-semibold text-blue-800">Work Summary</TableHead>
+                    <TableHead className="h-9 text-xs font-semibold text-blue-800 text-center">Labour</TableHead>
+                    <TableHead className="h-9 text-xs font-semibold text-blue-800 text-center">Materials</TableHead>
+                    <TableHead className="h-9 text-xs font-semibold text-blue-800 text-center">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {[...dprs].reverse().slice((dprPage - 1) * DPR_PAGE_SIZE, dprPage * DPR_PAGE_SIZE).map((d, idx) => {
+                    const labourTotal = d.labour_entries?.reduce((s, r) => s + (r.labour_count || 0), 0) || d.labor_count || 0;
+                    const matCount = d.material_stock_entries?.length || d.materials_used_entries?.length || 0;
+                    const workSnippet = d.work_summary_entries?.length > 0
+                      ? d.work_summary_entries.map(w => w.task_name).join(', ')
+                      : (d.work_done || '—');
+                    return (
+                      <TableRow key={d.id} className="hover:bg-muted/30" data-testid={`dpr-card-${d.id}`}>
+                        <TableCell className="py-2 font-mono text-xs text-muted-foreground">{(dprPage - 1) * DPR_PAGE_SIZE + idx + 1}</TableCell>
+                        <TableCell className="py-2 font-medium whitespace-nowrap">{formatDate(d.date)}</TableCell>
+                        <TableCell className="py-2 text-xs">{d.weather || '—'}</TableCell>
+                        <TableCell className="py-2 text-xs max-w-[250px] truncate">{workSnippet}</TableCell>
+                        <TableCell className="py-2 text-center"><Badge variant="outline" className="rounded-sm text-[10px]">{labourTotal}</Badge></TableCell>
+                        <TableCell className="py-2 text-center"><Badge variant="outline" className="rounded-sm text-[10px]">{matCount}</Badge></TableCell>
+                        <TableCell className="py-2">
+                          <div className="flex items-center justify-center gap-1">
+                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="View DPR" onClick={() => setViewDpr(d)}>
+                              <Eye className="w-3.5 h-3.5 text-blue-600" />
+                            </Button>
+                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="Download PDF" onClick={() => generateDprPdf(d, project, api)}>
+                              <Download className="w-3.5 h-3.5 text-blue-600" />
+                            </Button>
+                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="Share DPR" onClick={() => shareDpr(d, project?.name)}>
+                              <Share2 className="w-3.5 h-3.5 text-blue-600" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
             </div>
           )}
           {dprs.length > DPR_PAGE_SIZE && (
@@ -593,7 +609,7 @@ export default function ProjectDetail() {
 
         {/* Documents Tab */}
         <TabsContent value="documents">
-          <div className="flex justify-between items-center mb-4">
+          <div className="flex justify-between items-center mb-3">
             <p className="text-sm text-muted-foreground">{documents.length} documents</p>
             {hasPermission('projects', 'edit') && (
               <Button className="action-btn action-btn-accent" onClick={() => setUploadDialogOpen(true)} data-testid="upload-doc-btn">
@@ -602,13 +618,35 @@ export default function ProjectDetail() {
             )}
           </div>
 
+          {/* Category filter chips */}
+          {documents.length > 0 && (() => {
+            const uniqueCats = ['all', ...Array.from(new Set(documents.map(d => d.category).filter(Boolean)))];
+            return (
+              <div className="flex flex-wrap gap-1.5 mb-4">
+                {uniqueCats.map(cat => (
+                  <button
+                    key={cat}
+                    onClick={() => setDocCategoryFilter(cat)}
+                    className={`px-2.5 py-1 rounded-sm text-xs font-medium border transition-colors capitalize ${
+                      docCategoryFilter === cat
+                        ? 'bg-accent text-accent-foreground border-accent'
+                        : 'bg-background text-muted-foreground border-border hover:border-accent hover:text-accent'
+                    }`}
+                  >
+                    {cat === 'all' ? `All (${documents.length})` : `${cat.replace(/_/g, ' ')} (${documents.filter(d => d.category === cat).length})`}
+                  </button>
+                ))}
+              </div>
+            );
+          })()}
+
           {previewDoc ? (
             <DocPreview doc={previewDoc} onBack={() => setPreviewDoc(null)} onDelete={() => { setDocToDelete(previewDoc); setDeleteDocDialogOpen(true); }} canEdit={hasPermission('projects', 'edit')} />
           ) : documents.length === 0 ? (
             <Card className="rounded-sm"><CardContent className="text-center py-12 text-muted-foreground"><FolderOpen className="w-10 h-10 mx-auto mb-2 opacity-30" /><p>No documents uploaded yet</p><p className="text-xs mt-1">Upload plans, drawings, PDFs, and images</p></CardContent></Card>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {documents.map((doc) => (
+              {(docCategoryFilter === 'all' ? documents : documents.filter(d => d.category === docCategoryFilter)).map((doc) => (
                 <Card key={doc.id} className="rounded-sm card-hover cursor-pointer group" onClick={() => setPreviewDoc(doc)} data-testid={`doc-card-${doc.id}`}>
                   <CardContent className="p-4">
                     <div className="flex items-start gap-3">
@@ -673,13 +711,16 @@ export default function ProjectDetail() {
       </Dialog>
 
       {/* Progress Update Dialog */}
-      <ProgressDialog open={progressDialogOpen} onClose={() => setProgressDialogOpen(false)} current={project.progress_percentage || 0} currentCost={project.actual_cost} onSubmit={handleProgressUpdate} />
+      <ProgressDialog open={progressDialogOpen} onClose={() => setProgressDialogOpen(false)} currentProgress={project.progress_percentage || 0} currentCost={project.actual_cost} totalTasks={tasks.length} completedTasks={tasks.filter(t => t.status === 'completed').length} onSubmit={handleProgressUpdate} />
 
       {/* Task Dialog */}
       <TaskDialog open={taskDialogOpen} onClose={() => { setTaskDialogOpen(false); setEditingTask(null); }} task={editingTask} onSubmit={handleTaskSubmit} />
 
       {/* DPR Dialog */}
       <DprDialog open={dprDialogOpen} onClose={() => setDprDialogOpen(false)} onSubmit={handleDprSubmit} project={project} api={api} />
+
+      {/* DPR View Dialog */}
+      <DprViewDialog dpr={viewDpr} project={project} api={api} onClose={() => setViewDpr(null)} />
 
       <UploadDialog open={uploadDialogOpen} onClose={() => setUploadDialogOpen(false)} onSubmit={handleDocUpload} />
 
@@ -727,19 +768,23 @@ function FormField({ label, value, onChange, type = 'text', testId }) {
   );
 }
 
-function ProgressDialog({ open, onClose, current, currentCost, onSubmit }) {
-  const [progress, setProgress] = useState(current);
+function ProgressDialog({ open, onClose, currentProgress, currentCost, totalTasks, completedTasks, onSubmit }) {
   const [cost, setCost] = useState(currentCost || '');
-  useEffect(() => { setProgress(current); setCost(currentCost || ''); }, [current, currentCost]);
+  useEffect(() => { setCost(currentCost || ''); }, [currentCost]);
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-sm">
-        <DialogHeader><DialogTitle>Update Progress</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>Project Progress</DialogTitle></DialogHeader>
         <div className="space-y-4 mt-2">
           <div className="space-y-2">
-            <Label>Progress ({progress}%)</Label>
-            <input type="range" min="0" max="100" step="5" value={progress} onChange={e => setProgress(+e.target.value)} className="w-full accent-amber-500" data-testid="progress-slider" />
-            <Progress value={progress} className="h-2" />
+            <div className="flex items-center justify-between">
+              <Label className="text-sm font-medium">Progress</Label>
+              <span className="text-sm font-bold text-accent">{currentProgress}%</span>
+            </div>
+            <Progress value={currentProgress} className="h-2.5" />
+            <p className="text-xs text-muted-foreground">
+              Auto-calculated: {completedTasks} of {totalTasks} tasks completed
+            </p>
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs">Actual Cost (INR)</Label>
@@ -747,7 +792,7 @@ function ProgressDialog({ open, onClose, current, currentCost, onSubmit }) {
           </div>
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={onClose} className="rounded-sm">Cancel</Button>
-            <Button onClick={() => onSubmit(progress, cost)} className="action-btn-accent rounded-sm" data-testid="save-progress-btn">Update</Button>
+            <Button onClick={() => onSubmit(cost)} className="action-btn-accent rounded-sm" data-testid="save-progress-btn">Update</Button>
           </div>
         </div>
       </DialogContent>
@@ -849,131 +894,1062 @@ function PickerSection({ label, items, addedItems, itemKey, nameKey, subKey, sub
   );
 }
 
-function DprDialog({ open, onClose, onSubmit, project, api }) {
-  const emptyForm = { date: new Date().toISOString().slice(0, 10), weather: '', work_done: '', issues: '', notes: '', sqft_completed: '', tomorrow_schedule: '' };
-  const [form, setForm] = useState(emptyForm);
-  const [availableLabor, setAvailableLabor] = useState([]);
-  const [availableInventory, setAvailableInventory] = useState([]);
-  const [addedLabor, setAddedLabor] = useState([]);
-  const [addedMaterials, setAddedMaterials] = useState([]);
+// ── Helper: fetch image as base64 via backend proxy (avoids CORS) ──
+async function fetchImageAsDataUrl(api, docId) {
+  try {
+    const resp = await api.get(`/documents/${docId}/content`, { responseType: 'blob' });
+    const blob = resp.data;
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result);
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(blob);
+    });
+  } catch (e) {
+    console.warn('Failed to fetch image content for', docId, e);
+    return null;
+  }
+}
+
+// ── DPR Share ──────────────────────────────────────────
+function shareDpr(dpr, projectName) {
+  const workSnippet = dpr.work_summary_entries?.length > 0
+    ? dpr.work_summary_entries.map(w => w.task_name).join(', ')
+    : (dpr.work_done || '-');
+  const workerCount = dpr.labour_entries?.reduce((s, r) => s + (r.labour_count || 0), 0) || dpr.labor_count || 0;
+  const text = [
+    `Daily Progress Report`,
+    `Project: ${projectName || '-'}`,
+    `Date: ${formatDate(dpr.date)}`,
+    `Weather: ${dpr.weather || '-'}`,
+    `Work Done: ${workSnippet}`,
+    `Workers: ${workerCount}`,
+    dpr.issues ? `Issues: ${dpr.issues}` : null,
+  ].filter(Boolean).join('\n');
+  const title = `DPR – ${formatDate(dpr.date)}`;
+  const url = window.location.href;
+  if (navigator.share) {
+    navigator.share({ title, text, url }).catch(() => {});
+  } else {
+    navigator.clipboard.writeText(text + '\n\n' + url)
+      .then(() => toast.success('DPR details copied to clipboard'))
+      .catch(() => toast.error('Could not copy to clipboard'));
+  }
+}
+
+// ── DPR PDF Generator ──────────────────────────────────
+async function generateDprPdf(dpr, project, api) {
+  const doc = new jsPDF('p', 'mm', 'a4');
+  const pw = doc.internal.pageSize.getWidth();
+  const margin = 14;
+  const usable = pw - margin * 2;
+  let y = 14;
+
+  // Colors (muted professional tones)
+  const headerBg = [51, 65, 85]; // slate-700
+  const lightBg = [241, 245, 249]; // slate-100
+  const darkText = [30, 41, 59]; // slate-800
+
+  // Title block
+  doc.setFillColor(...headerBg);
+  doc.rect(0, 0, pw, 28, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(16);
+  doc.setFont('helvetica', 'bold');
+  doc.text('DAILY PROGRESS REPORT', pw / 2, 12, { align: 'center' });
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  doc.text(project?.name || '', pw / 2, 19, { align: 'center' });
+  if (project?.code) doc.text(`Code: ${project.code}`, pw / 2, 24, { align: 'center' });
+  y = 34;
+
+  // Info bar
+  doc.setFillColor(...lightBg);
+  doc.rect(margin, y, usable, 10, 'F');
+  doc.setDrawColor(200, 200, 200);
+  doc.rect(margin, y, usable, 10, 'S');
+  doc.setTextColor(...darkText);
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'bold');
+  doc.text(`Date: ${dpr.date}`, margin + 4, y + 6.5);
+  doc.text(`Weather: ${dpr.weather || 'N/A'}`, margin + 60, y + 6.5);
+  const totalLabour = dpr.labour_entries?.reduce((s, r) => s + (r.labour_count || 0), 0) || dpr.labor_count || 0;
+  doc.text(`Total Labour: ${totalLabour}`, margin + 120, y + 6.5);
+  y += 16;
+
+  const sectionTitle = (title) => {
+    if (y > 270) { doc.addPage(); y = 14; }
+    doc.setFillColor(...headerBg);
+    doc.rect(margin, y, usable, 7, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    doc.text(title, margin + 3, y + 5);
+    y += 9;
+    doc.setTextColor(0, 0, 0);
+    doc.setFont('helvetica', 'normal');
+  };
+
+  // 1. Work Summary
+  const wsEntries = dpr.work_summary_entries?.length > 0
+    ? dpr.work_summary_entries
+    : dpr.work_done ? [{ task_name: dpr.work_done, progress_today: '', overall_progress: '', status: '', remark: '' }] : [];
+  const tblOpts = (opts) => ({
+    margin: { left: margin, right: margin },
+    styles: { fontSize: 8, cellPadding: 2 },
+    headStyles: { fillColor: [...lightBg], textColor: [...darkText], fontStyle: 'bold', lineWidth: 0.2, lineColor: [200, 200, 200] },
+    alternateRowStyles: { fillColor: [248, 250, 252] },
+    theme: 'grid',
+    ...opts,
+  });
+
+  const runTable = (opts) => { autoTable(doc, tblOpts(opts)); y = doc.lastAutoTable.finalY; };
+
+  if (wsEntries.length > 0) {
+    sectionTitle('WORK SUMMARY');
+    runTable({
+      startY: y,
+      head: [['#', 'Task / Activity', "Today's Progress", 'Overall Progress', 'Status', 'Remark']],
+      body: wsEntries.map((w, i) => [i + 1, w.task_name, w.progress_today || '', w.overall_progress || '', w.status || '', w.remark || '']),
+    }); y += 6;
+  }
+
+  // 2. Labour Details
+  const labEntries = dpr.labour_entries?.length > 0 ? dpr.labour_entries : [];
+  if (labEntries.length > 0) {
+    sectionTitle('LABOUR DETAILS');
+    runTable({
+      startY: y,
+      head: [['#', 'Party / Contractor', 'Workforce Category', 'Count', 'Shift', 'OT (hr)']],
+      body: labEntries.map((l, i) => [i + 1, l.contractor_name, l.workforce_category || '', l.labour_count, l.shift, l.overtime_hours || 0]),
+    }); y += 6;
+  }
+
+  // 3. Material Inventory
+  const matEntries = dpr.material_stock_entries?.length > 0 ? dpr.material_stock_entries : [];
+  if (matEntries.length > 0) {
+    sectionTitle('MATERIAL USED');
+    runTable({
+      startY: y,
+      head: [['#', 'Material', 'Unit', 'Opening Stock', 'Received', 'Used', 'Closing Stock']],
+      body: matEntries.map((m, i) => [i + 1, m.item_name, m.unit || '', m.opening_stock, m.received || 0, m.used, m.closing_stock]),
+    }); y += 6;
+  }
+
+  // 4. Equipment Used
+  const eqEntries = dpr.equipment_entries?.length > 0 ? dpr.equipment_entries : [];
+  if (eqEntries.length > 0) {
+    sectionTitle('EQUIPMENT USED');
+    runTable({
+      startY: y,
+      head: [['#', 'Equipment', 'No.', 'Hours', 'Fuel']],
+      body: eqEntries.map((e, i) => [i + 1, e.equipment_name, e.equipment_no || '', `${e.total_used_hours}h`, e.fuel_added > 0 ? e.fuel_added : '—']),
+    }); y += 6;
+  }
+
+  // 5. Next Day Requirement
+  const ndMat = dpr.next_day_material_requests || [];
+  const ndEq = dpr.next_day_equipment_requests || [];
+  if (ndMat.length > 0 || ndEq.length > 0) {
+    sectionTitle('NEXT DAY REQUIREMENT');
+    if (ndMat.length > 0) {
+      doc.setFontSize(8); doc.setFont('helvetica', 'bold');
+      doc.text('Material Requests:', margin + 2, y + 3);
+      y += 5;
+      runTable({
+        startY: y,
+        head: [['#', 'Material', 'Unit', 'Qty Needed']],
+        body: ndMat.map((r, i) => [i + 1, r.item_name, r.unit || '', r.qty_needed || '']),
+      }); y += 4;
+    }
+    if (ndEq.length > 0) {
+      doc.setFontSize(8); doc.setFont('helvetica', 'bold');
+      doc.text('Equipment Requests:', margin + 2, y + 3);
+      y += 5;
+      runTable({
+        startY: y,
+        head: [['#', 'Equipment', 'Note']],
+        body: ndEq.map((r, i) => [i + 1, r.equipment_name, r.note || '']),
+      }); y += 6;
+    }
+  }
+
+  // 6. Contractor Work Summary
+  const cwEntries = dpr.contractor_work_entries || [];
+  if (cwEntries.length > 0) {
+    sectionTitle('CONTRACTOR WORK SUMMARY');
+    runTable({
+      startY: y,
+      head: [['#', 'Contractor', 'Work Title', 'Progress', 'Overall']],
+      body: cwEntries.map((c, i) => [i + 1, c.contractor_name, c.title, c.progress || '', c.overall_progress || '']),
+    }); y += 6;
+  }
+
+  // 7. Issues / Notes
+  if (dpr.issues || dpr.notes) {
+    sectionTitle('ISSUES & NOTES');
+    doc.setFontSize(8);
+    if (dpr.issues) { doc.setFont('helvetica', 'bold'); doc.text('Issues / Delays: ', margin + 2, y + 3); doc.setFont('helvetica', 'normal'); doc.text(dpr.issues, margin + 32, y + 3); y += 6; }
+    if (dpr.notes) { doc.setFont('helvetica', 'bold'); doc.text('Notes: ', margin + 2, y + 3); doc.setFont('helvetica', 'normal'); doc.text(dpr.notes, margin + 18, y + 3); y += 6; }
+  }
+
+  // 8. Site Photos — fetch via backend proxy to avoid CORS
+  const docIds = dpr.document_ids || [];
+  if (docIds.length > 0 && api) {
+    // Fetch metadata for filenames, and image bytes via proxy
+    const loaded = [];
+    for (const docId of docIds) {
+      try {
+        const [metaRes, dataUrl] = await Promise.all([
+          api.get(`/documents/${docId}`),
+          fetchImageAsDataUrl(api, docId),
+        ]);
+        if (dataUrl) loaded.push({ filename: metaRes.data?.filename || '', dataUrl });
+      } catch (e) { console.warn('Failed to load image:', docId, e); }
+    }
+
+    if (loaded.length > 0) {
+      sectionTitle('SITE PHOTOS');
+      const imgWidth = (usable - 6) / 2; // 2 images per row with gap
+      const imgHeight = imgWidth * 0.65;
+      let xCol = 0;
+
+      for (const img of loaded) {
+        // Check page space
+        if (y + imgHeight + 8 > doc.internal.pageSize.getHeight() - 14) {
+          doc.addPage(); y = 14; xCol = 0;
+        }
+
+        const xPos = margin + xCol * (imgWidth + 6);
+        doc.addImage(img.dataUrl, 'JPEG', xPos, y, imgWidth, imgHeight);
+
+        // Filename caption
+        doc.setFontSize(6); doc.setTextColor(120, 120, 120);
+        doc.text(img.filename, xPos, y + imgHeight + 3);
+        doc.setTextColor(0, 0, 0);
+
+        xCol++;
+        if (xCol >= 2) { xCol = 0; y += imgHeight + 8; }
+      }
+      if (xCol === 1) y += imgHeight + 8;
+      y += 4;
+    }
+  }
+
+  // Footer
+  const pageCount = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.setFontSize(7); doc.setTextColor(150, 150, 150);
+    doc.text(`Page ${i} of ${pageCount}`, pw / 2, doc.internal.pageSize.getHeight() - 6, { align: 'center' });
+    doc.text(`Generated on ${new Date().toLocaleDateString('en-IN')}`, pw - margin, doc.internal.pageSize.getHeight() - 6, { align: 'right' });
+  }
+
+  doc.save(`DPR_${project?.code || 'Report'}_${dpr.date}.pdf`);
+}
+
+
+// ── DPR View Dialog ─────────────────────────────────────
+function DprViewDialog({ dpr, project, api, onClose }) {
+  const [photoDocs, setPhotoDocs] = useState([]);
 
   useEffect(() => {
-    if (open) {
-      setForm(emptyForm);
-      setAddedLabor([]);
-      setAddedMaterials([]);
-      if (project?.id) {
-        api.get(`/labor?project_id=${project.id}`).then(r => setAvailableLabor(r.data)).catch(() => setAvailableLabor([]));
-        api.get(`/inventory?project_id=${project.id}`).then(r => setAvailableInventory(r.data)).catch(() => setAvailableInventory([]));
+    if (!dpr?.document_ids?.length || !api) { setPhotoDocs([]); return; }
+    let cancelled = false;
+    (async () => {
+      const results = [];
+      for (const docId of dpr.document_ids) {
+        try {
+          const res = await api.get(`/documents/${docId}`);
+          if (res.data?.file_url) {
+            const backendOrigin = (api.defaults.baseURL || '').replace(/\/api\/?$/, '');
+            const url = res.data.file_url.startsWith('http')
+              ? res.data.file_url
+              : `${backendOrigin}${res.data.file_url}`;
+            results.push({ ...res.data, resolved_url: url });
+          }
+        } catch (e) { console.warn('Failed to fetch doc for view:', docId, e); }
       }
+      if (!cancelled) setPhotoDocs(results);
+    })();
+    return () => { cancelled = true; };
+  }, [dpr?.id, dpr?.document_ids, api]);
+
+  if (!dpr) return null;
+  const totalLabour = dpr.labour_entries?.reduce((s, r) => s + (r.labour_count || 0), 0) || dpr.labor_count || 0;
+  return (
+    <Dialog open={!!dpr} onOpenChange={onClose}>
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="text-lg font-bold uppercase text-blue-800">Daily Progress Report</DialogTitle>
+          {project && <p className="text-sm text-muted-foreground font-medium mt-0.5">{project.name}{project.code ? ` · ${project.code}` : ''}</p>}
+        </DialogHeader>
+        <div className="space-y-4 mt-2">
+          {/* Info bar */}
+          <div className="flex gap-4 text-sm bg-blue-50 border border-blue-200 rounded-sm p-3">
+            <span><strong className="text-blue-800">Date:</strong> {formatDate(dpr.date)}</span>
+            <span><strong className="text-blue-800">Weather:</strong> {dpr.weather || 'N/A'}</span>
+            <span><strong className="text-blue-800">Total Labour:</strong> {totalLabour}</span>
+          </div>
+
+          {/* Work Summary */}
+          {dpr.work_summary_entries?.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold uppercase text-blue-800 mb-1.5 flex items-center gap-1.5 border-b border-blue-200 pb-1"><FileText className="w-3.5 h-3.5 text-blue-600" />Work Summary</p>
+              <div className="overflow-x-auto border rounded-sm">
+                <Table className="text-xs">
+                  <TableHeader><TableRow className="bg-blue-50">
+                    <TableHead className="h-7 text-[10px] font-semibold text-blue-800">#</TableHead>
+                    <TableHead className="h-7 text-[10px] font-semibold text-blue-800">Task</TableHead>
+                    <TableHead className="h-7 text-[10px] font-semibold text-blue-800">Progress</TableHead>
+                    <TableHead className="h-7 text-[10px] font-semibold text-blue-800">Overall</TableHead>
+                    <TableHead className="h-7 text-[10px] font-semibold text-blue-800">Status</TableHead>
+                    <TableHead className="h-7 text-[10px] font-semibold text-blue-800">Remark</TableHead>
+                  </TableRow></TableHeader>
+                  <TableBody>{dpr.work_summary_entries.map((w, i) => (
+                    <TableRow key={i}>
+                      <TableCell className="py-1">{i + 1}</TableCell>
+                      <TableCell className="py-1 font-medium">{w.task_name}</TableCell>
+                      <TableCell className="py-1">{w.progress_today}</TableCell>
+                      <TableCell className="py-1">{w.overall_progress}</TableCell>
+                      <TableCell className="py-1"><Badge className={`text-[9px] ${w.status === 'Completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>{w.status}</Badge></TableCell>
+                      <TableCell className="py-1 text-muted-foreground">{w.remark}</TableCell>
+                    </TableRow>
+                  ))}</TableBody>
+                </Table>
+              </div>
+            </div>
+          )}
+          {!dpr.work_summary_entries?.length && dpr.work_done && (
+            <div><span className="text-muted-foreground font-medium">Work Done:</span> {dpr.work_done}</div>
+          )}
+
+          {/* Labour Details */}
+          {dpr.labour_entries?.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold uppercase text-blue-800 mb-1.5 flex items-center gap-1.5 border-b border-blue-200 pb-1"><HardHat className="w-3.5 h-3.5 text-blue-600" />Labour Details</p>
+              <div className="overflow-x-auto border rounded-sm">
+                <Table className="text-xs">
+                  <TableHeader><TableRow className="bg-blue-50">
+                    <TableHead className="h-7 text-[10px] font-semibold text-blue-800">#</TableHead>
+                    <TableHead className="h-7 text-[10px] font-semibold text-blue-800">Party</TableHead>
+                    <TableHead className="h-7 text-[10px] font-semibold text-blue-800">Workforce</TableHead>
+                    <TableHead className="h-7 text-[10px] font-semibold text-blue-800">Count</TableHead>
+                    <TableHead className="h-7 text-[10px] font-semibold text-blue-800">Shift</TableHead>
+                    <TableHead className="h-7 text-[10px] font-semibold text-blue-800">OT</TableHead>
+                  </TableRow></TableHeader>
+                  <TableBody>{dpr.labour_entries.map((l, i) => (
+                    <TableRow key={i}>
+                      <TableCell className="py-1">{i + 1}</TableCell>
+                      <TableCell className="py-1 font-medium">{l.contractor_name}</TableCell>
+                      <TableCell className="py-1">{l.workforce_category}</TableCell>
+                      <TableCell className="py-1 font-semibold">{l.labour_count}</TableCell>
+                      <TableCell className="py-1">{l.shift}</TableCell>
+                      <TableCell className="py-1">{l.overtime_hours || 0}h</TableCell>
+                    </TableRow>
+                  ))}</TableBody>
+                </Table>
+              </div>
+            </div>
+          )}
+
+          {/* Material Stock */}
+          {dpr.material_stock_entries?.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold uppercase text-blue-800 mb-1.5 flex items-center gap-1.5 border-b border-blue-200 pb-1"><Package className="w-3.5 h-3.5 text-blue-600" />Material Used</p>
+              <div className="overflow-x-auto border rounded-sm">
+                <Table className="text-xs">
+                  <TableHeader><TableRow className="bg-blue-50">
+                    <TableHead className="h-7 text-[10px] font-semibold text-blue-800">#</TableHead>
+                    <TableHead className="h-7 text-[10px] font-semibold text-blue-800">Material</TableHead>
+                    <TableHead className="h-7 text-[10px] font-semibold text-blue-800 text-right">Opening</TableHead>
+                    <TableHead className="h-7 text-[10px] font-semibold text-blue-800 text-right">Received</TableHead>
+                    <TableHead className="h-7 text-[10px] font-semibold text-blue-800 text-right">Used</TableHead>
+                    <TableHead className="h-7 text-[10px] font-semibold text-blue-800 text-right">Closing</TableHead>
+                  </TableRow></TableHeader>
+                  <TableBody>{dpr.material_stock_entries.map((m, i) => (
+                    <TableRow key={i}>
+                      <TableCell className="py-1">{i + 1}</TableCell>
+                      <TableCell className="py-1 font-medium">{m.item_name} <span className="text-muted-foreground">({m.unit})</span></TableCell>
+                      <TableCell className="py-1 text-right">{m.opening_stock}</TableCell>
+                      <TableCell className="py-1 text-right text-emerald-600">{m.received > 0 ? `+${m.received}` : '0'}</TableCell>
+                      <TableCell className="py-1 text-right text-red-600">{m.used}</TableCell>
+                      <TableCell className="py-1 text-right font-semibold">{m.closing_stock}</TableCell>
+                    </TableRow>
+                  ))}</TableBody>
+                </Table>
+              </div>
+            </div>
+          )}
+
+          {/* Equipment Used */}
+          {dpr.equipment_entries?.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold uppercase text-blue-800 mb-1.5 flex items-center gap-1.5 border-b border-blue-200 pb-1"><Wrench className="w-3.5 h-3.5 text-blue-600" />Equipment Used</p>
+              <div className="overflow-x-auto border rounded-sm">
+                <Table className="text-xs">
+                  <TableHeader><TableRow className="bg-blue-50">
+                    <TableHead className="h-7 text-[10px] font-semibold text-blue-800">#</TableHead>
+                    <TableHead className="h-7 text-[10px] font-semibold text-blue-800">Equipment</TableHead>
+                    <TableHead className="h-7 text-[10px] font-semibold text-blue-800">No.</TableHead>
+                    <TableHead className="h-7 text-[10px] font-semibold text-blue-800 text-right">Hours</TableHead>
+                    <TableHead className="h-7 text-[10px] font-semibold text-blue-800 text-right">Fuel</TableHead>
+                  </TableRow></TableHeader>
+                  <TableBody>{dpr.equipment_entries.map((e, i) => (
+                    <TableRow key={i}>
+                      <TableCell className="py-1">{i + 1}</TableCell>
+                      <TableCell className="py-1 font-medium">{e.equipment_name}</TableCell>
+                      <TableCell className="py-1 text-muted-foreground">{e.equipment_no || '—'}</TableCell>
+                      <TableCell className="py-1 text-right">{e.total_used_hours}h</TableCell>
+                      <TableCell className="py-1 text-right">{e.fuel_added > 0 ? e.fuel_added : '—'}</TableCell>
+                    </TableRow>
+                  ))}</TableBody>
+                </Table>
+              </div>
+            </div>
+          )}
+
+          {/* Next Day Requirement */}
+          {(dpr.next_day_material_requests?.length > 0 || dpr.next_day_equipment_requests?.length > 0) && (
+            <div>
+              <p className="text-xs font-semibold uppercase text-blue-800 mb-1.5 flex items-center gap-1.5 border-b border-blue-200 pb-1"><Calendar className="w-3.5 h-3.5 text-blue-600" />Next Day Requirement</p>
+              <div className="flex flex-wrap gap-1.5">
+                {dpr.next_day_material_requests?.map((r, i) => (
+                  <Badge key={`m-${i}`} variant="secondary" className="rounded-sm text-xs">{r.item_name} {r.qty_needed} {r.unit}</Badge>
+                ))}
+                {dpr.next_day_equipment_requests?.map((r, i) => (
+                  <Badge key={`e-${i}`} variant="secondary" className="rounded-sm text-xs">{r.equipment_name}{r.note ? ` — ${r.note}` : ''}</Badge>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Contractor Work Summary */}
+          {dpr.contractor_work_entries?.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold uppercase text-blue-800 mb-1.5 flex items-center gap-1.5 border-b border-blue-200 pb-1"><Briefcase className="w-3.5 h-3.5 text-blue-600" />Contractor Work Summary</p>
+              <div className="overflow-x-auto border rounded-sm">
+                <Table className="text-xs">
+                  <TableHeader><TableRow className="bg-blue-50">
+                    <TableHead className="h-7 text-[10px] font-semibold text-blue-800">#</TableHead>
+                    <TableHead className="h-7 text-[10px] font-semibold text-blue-800">Contractor</TableHead>
+                    <TableHead className="h-7 text-[10px] font-semibold text-blue-800">Title</TableHead>
+                    <TableHead className="h-7 text-[10px] font-semibold text-blue-800">Progress</TableHead>
+                    <TableHead className="h-7 text-[10px] font-semibold text-blue-800">Overall</TableHead>
+                  </TableRow></TableHeader>
+                  <TableBody>{dpr.contractor_work_entries.map((c, i) => (
+                    <TableRow key={i}>
+                      <TableCell className="py-1">{i + 1}</TableCell>
+                      <TableCell className="py-1 font-medium">{c.contractor_name}</TableCell>
+                      <TableCell className="py-1">{c.title}</TableCell>
+                      <TableCell className="py-1">{c.progress}</TableCell>
+                      <TableCell className="py-1">{c.overall_progress}</TableCell>
+                    </TableRow>
+                  ))}</TableBody>
+                </Table>
+              </div>
+            </div>
+          )}
+
+          {/* Issues & Notes */}
+          {(dpr.issues || dpr.notes) && (
+            <div className="text-sm space-y-1">
+              {dpr.issues && <div className="flex items-start gap-1.5 text-amber-600"><AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" /><span>{dpr.issues}</span></div>}
+              {dpr.notes && <div className="text-muted-foreground italic">{dpr.notes}</div>}
+            </div>
+          )}
+
+          {/* Site Photos */}
+          {photoDocs.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold uppercase text-blue-800 mb-1.5 flex items-center gap-1.5 border-b border-blue-200 pb-1"><Camera className="w-3.5 h-3.5 text-blue-600" />Site Photos</p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {photoDocs.map((pd) => (
+                  <a key={pd.id} href={pd.resolved_url} target="_blank" rel="noopener noreferrer" className="block border rounded-sm overflow-hidden hover:shadow-md transition-shadow">
+                    <img src={pd.resolved_url} alt={pd.filename} className="w-full h-32 object-cover bg-muted" />
+                    <p className="text-[10px] text-muted-foreground px-1.5 py-1 truncate">{pd.filename}</p>
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="flex justify-end gap-2 pt-2 border-t">
+            <Button variant="outline" className="rounded-sm gap-1.5" onClick={onClose}>Close</Button>
+            <Button className="rounded-sm gap-1.5 bg-blue-600 hover:bg-blue-700" onClick={() => generateDprPdf(dpr, project, api)}>
+              <Download className="w-4 h-4" /> Download PDF
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+
+function DprSectionHeader({ title, icon: Icon, isOpen, onToggle, count }) {
+  return (
+    <button type="button" onClick={onToggle}
+      className="w-full flex items-center justify-between py-2 px-3 bg-accent text-accent-foreground rounded-sm text-sm font-semibold hover:bg-accent/90 transition-colors">
+      <span className="flex items-center gap-2">
+        <Icon className="w-4 h-4" />{title}
+        {count > 0 && <Badge className="text-[10px] rounded-full h-5 px-1.5 bg-white/20 text-white">{count}</Badge>}
+      </span>
+      <ChevronDown className={`w-4 h-4 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+    </button>
+  );
+}
+
+const UNIT_OPTIONS = ['sqft', 'rft', 'cum', 'cft', 'nos', 'bags', 'kg', 'ton', 'mtr', 'ltr', 'trips', 'brass', 'load'];
+
+const DPR_API_BASE = process.env.REACT_APP_BACKEND_URL;
+
+function DprDialog({ open, onClose, onSubmit, project, api }) {
+  const emptyForm = { date: new Date().toISOString().slice(0, 10), weather: '', issues: '', notes: '' };
+  const [form, setForm] = useState(emptyForm);
+  const [submitting, setSubmitting] = useState(false);
+
+  // Data sources
+  const [availableLabor, setAvailableLabor] = useState([]);
+  const [availableMaterials, setAvailableMaterials] = useState([]);
+  const [availableEquipment, setAvailableEquipment] = useState([]);
+  const [availableContractors, setAvailableContractors] = useState([]);
+
+  // Section data
+  const [workSummaryRows, setWorkSummaryRows] = useState([]);
+  const [labourRows, setLabourRows] = useState([]);
+  const [materialStockRows, setMaterialStockRows] = useState([]);
+  const [equipmentRows, setEquipmentRows] = useState([]);
+  const [nextDayMaterialRows, setNextDayMaterialRows] = useState([]);
+  const [nextDayEquipmentRows, setNextDayEquipmentRows] = useState([]);
+  const [contractorWorkRows, setContractorWorkRows] = useState([]);
+  const [uploadedDocs, setUploadedDocs] = useState([]);
+  const [uploading, setUploading] = useState(false);
+
+  // Collapsible sections
+  const [openSections, setOpenSections] = useState({ workSummary: true, labour: true, materials: true, equipment: false, nextDay: false, contractorWork: false, images: false });
+  const toggleSection = (key) => setOpenSections(s => ({ ...s, [key]: !s[key] }));
+
+  // Inline row forms
+  const [wsRow, setWsRow] = useState({ task_name: '', progress_today: '', progress_unit: '', overall_progress: '', status: 'Ongoing', remark: '' });
+  const [lbParty, setLbParty] = useState('daily_wage');
+  const [lbContractorId, setLbContractorId] = useState('');
+  const [lbCategoryId, setLbCategoryId] = useState('');
+  const [lbCategoryText, setLbCategoryText] = useState('');
+  const [lbCount, setLbCount] = useState('');
+  const [lbShift, setLbShift] = useState('1');
+  const [lbOvertime, setLbOvertime] = useState('0');
+  const [msSelId, setMsSelId] = useState('');
+  const [msOpening, setMsOpening] = useState(null);
+  const [msReceived, setMsReceived] = useState('0');
+  const [msUsed, setMsUsed] = useState('');
+  const [eqSelId, setEqSelId] = useState('');
+  const [eqHours, setEqHours] = useState('');
+  const [eqFuel, setEqFuel] = useState('0');
+  const [ndMatName, setNdMatName] = useState('');
+  const [ndMatUnit, setNdMatUnit] = useState('');
+  const [ndMatQty, setNdMatQty] = useState('');
+  const [ndEqName, setNdEqName] = useState('');
+  const [ndEqNote, setNdEqNote] = useState('');
+  const [cwContractorId, setCwContractorId] = useState('');
+  const [cwTitle, setCwTitle] = useState('');
+  const [cwProgress, setCwProgress] = useState('');
+  const [cwProgressUnit, setCwProgressUnit] = useState('');
+  const [cwOverall, setCwOverall] = useState('');
+
+  useEffect(() => {
+    if (open && project?.id) {
+      setForm(emptyForm);
+      setWorkSummaryRows([]); setLabourRows([]); setMaterialStockRows([]);
+      setEquipmentRows([]); setNextDayMaterialRows([]); setNextDayEquipmentRows([]);
+      setContractorWorkRows([]); setUploadedDocs([]);
+      setOpenSections({ workSummary: true, labour: true, materials: true, equipment: false, nextDay: false, contractorWork: false, images: false });
+      Promise.all([
+        api.get(`/labor?project_id=${project.id}`),
+        api.get(`/inventory?project_id=${project.id}`),
+        api.get(`/contractors?project_id=${project.id}`)
+      ]).then(([labRes, invRes, conRes]) => {
+        setAvailableLabor(labRes.data);
+        const allInv = invRes.data;
+        setAvailableMaterials(allInv.filter(i => (i.item_type || 'material') === 'material'));
+        setAvailableEquipment(allInv.filter(i => i.item_type === 'equipment'));
+        setAvailableContractors(conRes.data);
+      }).catch(() => {});
     }
   }, [open, project?.id]);
 
-  const addLabor = (item, count) => {
-    setAddedLabor(prev => {
-      const idx = prev.findIndex(r => r.labor_id === item.id);
-      const row = { labor_id: item.id, category_id: item.category_id, category_name: item.category_name, day_rate: item.day_rate, count: parseInt(count), name: item.category_name, sub: `₹${item.day_rate}/day` };
-      return idx >= 0 ? prev.map((r, i) => i === idx ? { ...r, count: parseInt(count) } : r) : [...prev, row];
-    });
-  };
-  const addMaterial = (item, count) => {
-    setAddedMaterials(prev => {
-      const idx = prev.findIndex(r => r.inventory_id === item.id);
-      const row = { inventory_id: item.id, item_name: item.item_name, unit: item.unit, quantity_used: count, name: item.item_name, sub: `${item.unit} · ${item.quantity} in stock` };
-      return idx >= 0 ? prev.map((r, i) => i === idx ? { ...r, quantity_used: count, sub: `${item.unit} · ${item.quantity} in stock` } : r) : [...prev, row];
-    });
+  // Material opening stock fetch
+  const handleMaterialSelect = async (invId) => {
+    setMsSelId(invId); setMsOpening(null); setMsReceived('0'); setMsUsed('');
+    if (invId && project?.id && form.date) {
+      try {
+        const res = await api.get(`/dpr/opening-stock?project_id=${project.id}&inventory_id=${invId}&date=${form.date}`);
+        setMsOpening(res.data.opening_stock);
+      } catch {
+        const item = availableMaterials.find(m => m.id === invId);
+        setMsOpening(item?.quantity || 0);
+      }
+    }
   };
 
-  const handleSubmit = (e) => {
+  const msClosing = msOpening !== null ? Math.max(0, msOpening + parseFloat(msReceived || 0) - parseFloat(msUsed || 0)) : null;
+
+  // Image upload
+  const handleImageUpload = async (files) => {
+    if (!files || files.length === 0) return;
+    setUploading(true);
+    try {
+      for (const file of files) {
+        const fd = new FormData();
+        fd.append('file', file);
+        fd.append('project_id', project.id);
+        fd.append('category', 'dpr');
+        fd.append('description', `DPR ${form.date}`);
+        const res = await api.post('/documents/upload', fd);
+        setUploadedDocs(prev => [...prev, { id: res.data.id, url: res.data.file_url, name: res.data.filename, storage_type: res.data.storage_type }]);
+      }
+      toast.success(`${files.length > 1 ? files.length + ' images' : 'Image'} uploaded`);
+    } catch (e) {
+      console.error('DPR image upload error:', e?.response?.data || e?.message || e);
+      toast.error(e?.response?.data?.detail || 'Upload failed — check console for details');
+    } finally { setUploading(false); }
+  };
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    const labor_entries = addedLabor.map(({ labor_id, name, sub, ...rest }) => rest);
-    const labor_count = addedLabor.reduce((s, r) => s + r.count, 0);
-    const materials_used_entries = addedMaterials.map(({ name, sub, ...rest }) => rest);
-    const materials_used = addedMaterials.map(m => `${m.item_name} ${m.quantity_used}${m.unit}`).join(', ');
-    onSubmit({ ...form, labor_count, labor_entries, materials_used_entries, materials_used });
+    if (workSummaryRows.length === 0) { toast.error('Add at least one work summary entry'); return; }
+    setSubmitting(true);
+    try {
+      await onSubmit({
+        ...form,
+        work_done: workSummaryRows.map(r => r.task_name).join(', '),
+        work_summary_entries: workSummaryRows,
+        labour_entries: labourRows,
+        labor_count: labourRows.reduce((s, r) => s + (r.labour_count || 0), 0),
+        material_stock_entries: materialStockRows,
+        equipment_entries: equipmentRows,
+        next_day_material_requests: nextDayMaterialRows,
+        next_day_equipment_requests: nextDayEquipmentRows,
+        contractor_work_entries: contractorWorkRows,
+        document_ids: uploadedDocs.map(d => d.id),
+      });
+    } finally { setSubmitting(false); }
   };
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-lg font-bold uppercase">New Daily Progress Report</DialogTitle>
           {project && <p className="text-sm text-muted-foreground font-medium mt-0.5">{project.name}{project.code ? ` · ${project.code}` : ''}</p>}
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4 mt-2">
+        <form onSubmit={handleSubmit} className="space-y-3 mt-2">
+
+          {/* Date + Weather */}
           <div className="grid grid-cols-2 gap-3">
             <FormField label="Date *" type="date" value={form.date} onChange={v => setForm(f => ({ ...f, date: v }))} testId="dpr-date-input" />
             <div className="space-y-1.5">
               <Label className="text-xs">Weather</Label>
               <Select value={form.weather} onValueChange={v => setForm(f => ({ ...f, weather: v }))}>
-                <SelectTrigger className="rounded-sm text-sm" data-testid="dpr-weather-select"><SelectValue placeholder="Select" /></SelectTrigger>
+                <SelectTrigger className="rounded-sm text-sm"><SelectValue placeholder="Select" /></SelectTrigger>
                 <SelectContent>{['Sunny', 'Cloudy', 'Rainy', 'Windy', 'Hot', 'Cold'].map(w => <SelectItem key={w} value={w}>{w}</SelectItem>)}</SelectContent>
               </Select>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            {/* Labor */}
-            <PickerSection
-              label="Labor"
-              items={availableLabor}
-              addedItems={addedLabor}
-              itemKey="labor_id"
-              nameKey="category_name"
-              subKey="day_rate"
-              subLabel={i => `₹${i.day_rate}/day`}
-              countLabel="Count"
-              onAdd={addLabor}
-              onRemove={id => setAddedLabor(prev => prev.filter(r => r.labor_id !== id))}
-              totalLabel="Total Workers"
-              totalVal={addedLabor.reduce((s, r) => s + r.count, 0)}
-              emptyMsg="No labor set up for this project."
-            />
-            {/* Materials */}
-            <PickerSection
-              label="Materials Used"
-              items={availableInventory}
-              addedItems={addedMaterials}
-              itemKey="inventory_id"
-              nameKey="item_name"
-              subKey="unit"
-              subLabel={i => `${i.unit} · ${i.quantity} in stock`}
-              countLabel="Qty used"
-              onAdd={addMaterial}
-              onRemove={id => setAddedMaterials(prev => prev.filter(r => r.inventory_id !== id))}
-              totalLabel="Items selected"
-              totalVal={addedMaterials.length}
-              emptyMsg="No inventory items for this project."
-            />
+          {/* ── Section 1: Work Summary ── */}
+          <DprSectionHeader title="Work Summary" icon={FileText} isOpen={openSections.workSummary} onToggle={() => toggleSection('workSummary')} count={workSummaryRows.length} />
+          {openSections.workSummary && (
+            <div className="space-y-2 px-1">
+              {workSummaryRows.length > 0 && (
+                <div className="overflow-x-auto border rounded-sm">
+                  <Table className="text-xs">
+                    <TableHeader><TableRow className="bg-muted/30">
+                      <TableHead className="h-7 text-[10px]">#</TableHead>
+                      <TableHead className="h-7 text-[10px]">Task</TableHead>
+                      <TableHead className="h-7 text-[10px]">Progress</TableHead>
+                      <TableHead className="h-7 text-[10px]">Overall</TableHead>
+                      <TableHead className="h-7 text-[10px]">Status</TableHead>
+                      <TableHead className="h-7 text-[10px]">Remark</TableHead>
+                      <TableHead className="h-7 w-8"></TableHead>
+                    </TableRow></TableHeader>
+                    <TableBody>
+                      {workSummaryRows.map((r, i) => (
+                        <TableRow key={i}>
+                          <TableCell className="py-1">{i + 1}</TableCell>
+                          <TableCell className="py-1 font-medium">{r.task_name}</TableCell>
+                          <TableCell className="py-1">{r.progress_today}</TableCell>
+                          <TableCell className="py-1">{r.overall_progress}</TableCell>
+                          <TableCell className="py-1"><Badge className={`text-[10px] ${r.status === 'Completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>{r.status}</Badge></TableCell>
+                          <TableCell className="py-1 text-muted-foreground">{r.remark}</TableCell>
+                          <TableCell className="py-1"><button type="button" onClick={() => setWorkSummaryRows(p => p.filter((_, j) => j !== i))} className="text-red-400 hover:text-red-600">×</button></TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+              <div className="grid grid-cols-7 gap-1.5 items-end">
+                <div className="space-y-1"><Label className="text-[10px]">Task *</Label><Input className="h-7 text-xs rounded-sm" value={wsRow.task_name} onChange={e => setWsRow(r => ({ ...r, task_name: e.target.value }))} /></div>
+                <div className="space-y-1"><Label className="text-[10px]">Today's Progress</Label><Input type="number" min="0" className="h-7 text-xs rounded-sm" value={wsRow.progress_today} onChange={e => setWsRow(r => ({ ...r, progress_today: e.target.value }))} /></div>
+                <div className="space-y-1"><Label className="text-[10px]">Unit</Label>
+                  <Select value={wsRow.progress_unit} onValueChange={v => setWsRow(r => ({ ...r, progress_unit: v }))}><SelectTrigger className="h-7 text-xs rounded-sm"><SelectValue placeholder="Unit" /></SelectTrigger><SelectContent>{UNIT_OPTIONS.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent></Select>
+                </div>
+                <div className="space-y-1"><Label className="text-[10px]">Overall</Label><Input className="h-7 text-xs rounded-sm" value={wsRow.overall_progress} onChange={e => setWsRow(r => ({ ...r, overall_progress: e.target.value }))} /></div>
+                <div className="space-y-1"><Label className="text-[10px]">Status</Label>
+                  <Select value={wsRow.status} onValueChange={v => setWsRow(r => ({ ...r, status: v }))}><SelectTrigger className="h-7 text-xs rounded-sm"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Ongoing">Ongoing</SelectItem><SelectItem value="Completed">Completed</SelectItem></SelectContent></Select>
+                </div>
+                <div className="space-y-1"><Label className="text-[10px]">Remark</Label><Input className="h-7 text-xs rounded-sm" value={wsRow.remark} onChange={e => setWsRow(r => ({ ...r, remark: e.target.value }))} /></div>
+                <Button type="button" variant="outline" className="h-7 rounded-sm text-xs" onClick={() => {
+                  if (!wsRow.task_name.trim()) return;
+                  const progressDisplay = wsRow.progress_today ? `${wsRow.progress_today} ${wsRow.progress_unit}`.trim() : '';
+                  setWorkSummaryRows(p => [...p, { ...wsRow, progress_today: progressDisplay }]);
+                  setWsRow({ task_name: '', progress_today: '', progress_unit: '', overall_progress: '', status: 'Ongoing', remark: '' });
+                }}><Plus className="w-3.5 h-3.5" /></Button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Section 2: Labour Details ── */}
+          <DprSectionHeader title="Labour Report" icon={HardHat} isOpen={openSections.labour} onToggle={() => toggleSection('labour')} count={labourRows.length} />
+          {openSections.labour && (
+            <div className="space-y-2 px-1">
+              {labourRows.length > 0 && (
+                <div className="overflow-x-auto border rounded-sm">
+                  <Table className="text-xs">
+                    <TableHeader><TableRow className="bg-muted/30">
+                      <TableHead className="h-7 text-[10px]">#</TableHead>
+                      <TableHead className="h-7 text-[10px]">Party</TableHead>
+                      <TableHead className="h-7 text-[10px]">Workforce</TableHead>
+                      <TableHead className="h-7 text-[10px]">Count</TableHead>
+                      <TableHead className="h-7 text-[10px]">Shift</TableHead>
+                      <TableHead className="h-7 text-[10px]">OT (hr)</TableHead>
+                      <TableHead className="h-7 w-8"></TableHead>
+                    </TableRow></TableHeader>
+                    <TableBody>
+                      {labourRows.map((r, i) => (
+                        <TableRow key={i}>
+                          <TableCell className="py-1">{i + 1}</TableCell>
+                          <TableCell className="py-1 font-medium">{r.contractor_name}</TableCell>
+                          <TableCell className="py-1">{r.workforce_category}</TableCell>
+                          <TableCell className="py-1 font-semibold">{r.labour_count}</TableCell>
+                          <TableCell className="py-1">{r.shift}</TableCell>
+                          <TableCell className="py-1">{r.overtime_hours}</TableCell>
+                          <TableCell className="py-1"><button type="button" onClick={() => setLabourRows(p => p.filter((_, j) => j !== i))} className="text-red-400 hover:text-red-600">×</button></TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+              <div className="border rounded-sm p-2 bg-muted/20 space-y-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1"><Label className="text-[10px]">Party Type</Label>
+                    <Select value={lbParty} onValueChange={v => { setLbParty(v); setLbContractorId(''); setLbCategoryId(''); setLbCategoryText(''); }}>
+                      <SelectTrigger className="h-7 text-xs rounded-sm"><SelectValue /></SelectTrigger>
+                      <SelectContent><SelectItem value="daily_wage">Daily Wage Worker</SelectItem><SelectItem value="contractor">Contractor</SelectItem></SelectContent>
+                    </Select>
+                  </div>
+                  {lbParty === 'daily_wage' ? (
+                    <div className="space-y-1"><Label className="text-[10px]">Category</Label>
+                      <Select value={lbCategoryId} onValueChange={setLbCategoryId}>
+                        <SelectTrigger className="h-7 text-xs rounded-sm"><SelectValue placeholder="Select" /></SelectTrigger>
+                        <SelectContent>{availableLabor.map(l => <SelectItem key={l.id} value={l.id}>{l.category_name}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+                  ) : (
+                    <div className="space-y-1"><Label className="text-[10px]">Contractor</Label>
+                      <Select value={lbContractorId} onValueChange={setLbContractorId}>
+                        <SelectTrigger className="h-7 text-xs rounded-sm"><SelectValue placeholder="Select" /></SelectTrigger>
+                        <SelectContent>{availableContractors.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                </div>
+                {lbParty === 'contractor' && (() => {
+                  const selCon = availableContractors.find(c => c.id === lbContractorId);
+                  const roles = selCon?.roles || [];
+                  return roles.length > 0 ? (
+                    <div className="space-y-1"><Label className="text-[10px]">Workforce Category</Label>
+                      <Select value={lbCategoryText} onValueChange={setLbCategoryText}>
+                        <SelectTrigger className="h-7 text-xs rounded-sm"><SelectValue placeholder="Select category" /></SelectTrigger>
+                        <SelectContent>{roles.map((r, i) => <SelectItem key={i} value={r.category}>{r.category}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+                  ) : (
+                    <div className="space-y-1"><Label className="text-[10px]">Workforce Category</Label><Input className="h-7 text-xs rounded-sm" value={lbCategoryText} onChange={e => setLbCategoryText(e.target.value)} /></div>
+                  );
+                })()}
+                <div className="grid grid-cols-4 gap-2 items-end">
+                  <div className="space-y-1"><Label className="text-[10px]">Count *</Label><Input type="number" min="1" className="h-7 text-xs rounded-sm" value={lbCount} onChange={e => setLbCount(e.target.value)} /></div>
+                  <div className="space-y-1"><Label className="text-[10px]">Shift</Label>
+                    <Select value={lbShift} onValueChange={setLbShift}><SelectTrigger className="h-7 text-xs rounded-sm"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="1">1</SelectItem><SelectItem value="2">2</SelectItem></SelectContent></Select>
+                  </div>
+                  <div className="space-y-1"><Label className="text-[10px]">OT Hours</Label><Input type="number" min="0" step="0.5" className="h-7 text-xs rounded-sm" value={lbOvertime} onChange={e => setLbOvertime(e.target.value)} /></div>
+                  <Button type="button" variant="outline" className="h-7 rounded-sm text-xs w-full" onClick={() => {
+                    if (!lbCount || parseInt(lbCount) <= 0) return;
+                    let row;
+                    if (lbParty === 'daily_wage') {
+                      const labor = availableLabor.find(l => l.id === lbCategoryId);
+                      if (!labor) return;
+                      row = { party_type: 'daily_wage', contractor_id: null, contractor_name: 'Daily Wage Worker', workforce_category: labor.category_name, labour_count: parseInt(lbCount), shift: lbShift, overtime_hours: parseFloat(lbOvertime) || 0 };
+                    } else {
+                      const con = availableContractors.find(c => c.id === lbContractorId);
+                      if (!con) return;
+                      row = { party_type: 'contractor', contractor_id: lbContractorId, contractor_name: con.name, workforce_category: lbCategoryText, labour_count: parseInt(lbCount), shift: lbShift, overtime_hours: parseFloat(lbOvertime) || 0 };
+                    }
+                    setLabourRows(p => [...p, row]);
+                    setLbContractorId(''); setLbCategoryId(''); setLbCategoryText(''); setLbCount(''); setLbShift('1'); setLbOvertime('0');
+                  }}><Plus className="w-3.5 h-3.5 mr-1" /> Add</Button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Section 3: Material Inventory ── */}
+          <DprSectionHeader title="Material Inventory" icon={Package} isOpen={openSections.materials} onToggle={() => toggleSection('materials')} count={materialStockRows.length} />
+          {openSections.materials && (
+            <div className="space-y-2 px-1">
+              {materialStockRows.length > 0 && (
+                <div className="overflow-x-auto border rounded-sm">
+                  <Table className="text-xs">
+                    <TableHeader><TableRow className="bg-muted/30">
+                      <TableHead className="h-7 text-[10px]">#</TableHead>
+                      <TableHead className="h-7 text-[10px]">Material</TableHead>
+                      <TableHead className="h-7 text-[10px] text-right">Opening</TableHead>
+                      <TableHead className="h-7 text-[10px] text-right">Received</TableHead>
+                      <TableHead className="h-7 text-[10px] text-right">Used</TableHead>
+                      <TableHead className="h-7 text-[10px] text-right">Closing</TableHead>
+                      <TableHead className="h-7 w-8"></TableHead>
+                    </TableRow></TableHeader>
+                    <TableBody>
+                      {materialStockRows.map((r, i) => (
+                        <TableRow key={i}>
+                          <TableCell className="py-1">{i + 1}</TableCell>
+                          <TableCell className="py-1 font-medium">{r.item_name} <span className="text-muted-foreground">({r.unit})</span></TableCell>
+                          <TableCell className="py-1 text-right">{r.opening_stock}</TableCell>
+                          <TableCell className="py-1 text-right text-emerald-600">{r.received > 0 ? `+${r.received}` : '0'}</TableCell>
+                          <TableCell className="py-1 text-right text-red-600">{r.used}</TableCell>
+                          <TableCell className="py-1 text-right font-semibold">{r.closing_stock}</TableCell>
+                          <TableCell className="py-1"><button type="button" onClick={() => setMaterialStockRows(p => p.filter((_, j) => j !== i))} className="text-red-400 hover:text-red-600">×</button></TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+              <div className="border rounded-sm p-2 bg-muted/20 space-y-2">
+                <div className="space-y-1"><Label className="text-[10px]">Select Material</Label>
+                  <Select value={msSelId} onValueChange={handleMaterialSelect}>
+                    <SelectTrigger className="h-7 text-xs rounded-sm"><SelectValue placeholder="Select material" /></SelectTrigger>
+                    <SelectContent>{availableMaterials.filter(m => !materialStockRows.find(r => r.inventory_id === m.id)).map(m => <SelectItem key={m.id} value={m.id}>{m.item_name} ({m.unit})</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                {msSelId && (
+                  <div className="grid grid-cols-4 gap-2">
+                    <div className="space-y-1"><Label className="text-[10px]">Opening Stock</Label><div className="h-7 px-2 flex items-center text-xs bg-muted rounded-sm font-mono">{msOpening !== null ? msOpening : '...'}</div></div>
+                    <div className="space-y-1"><Label className="text-[10px]">Received</Label><Input type="number" min="0" className="h-7 text-xs rounded-sm" value={msReceived} onChange={e => setMsReceived(e.target.value)} /></div>
+                    <div className="space-y-1"><Label className="text-[10px]">Used *</Label><Input type="number" min="0" className="h-7 text-xs rounded-sm" value={msUsed} onChange={e => setMsUsed(e.target.value)} /></div>
+                    <div className="space-y-1"><Label className="text-[10px]">Closing Stock</Label><div className={`h-7 px-2 flex items-center text-xs rounded-sm font-mono font-semibold ${msClosing !== null && msClosing <= 0 ? 'bg-red-100 text-red-700' : 'bg-emerald-50 text-emerald-700'}`}>{msClosing !== null ? msClosing.toFixed(1) : '—'}</div></div>
+                  </div>
+                )}
+                <Button type="button" variant="outline" className="h-7 w-full rounded-sm text-xs" disabled={!msSelId || !msUsed} onClick={() => {
+                  const item = availableMaterials.find(m => m.id === msSelId);
+                  if (!item) return;
+                  setMaterialStockRows(p => [...p, { inventory_id: item.id, item_name: item.item_name, unit: item.unit, opening_stock: msOpening || 0, received: parseFloat(msReceived) || 0, used: parseFloat(msUsed), closing_stock: msClosing || 0 }]);
+                  setMsSelId(''); setMsOpening(null); setMsReceived('0'); setMsUsed('');
+                }}><Plus className="w-3.5 h-3.5 mr-1" /> Add Material</Button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Section 4: Equipment Used ── */}
+          <DprSectionHeader title="Equipment Used" icon={Wrench} isOpen={openSections.equipment} onToggle={() => toggleSection('equipment')} count={equipmentRows.length} />
+          {openSections.equipment && (
+            <div className="space-y-2 px-1">
+              {equipmentRows.length > 0 && (
+                <div className="overflow-x-auto border rounded-sm">
+                  <Table className="text-xs">
+                    <TableHeader><TableRow className="bg-muted/30">
+                      <TableHead className="h-7 text-[10px]">#</TableHead>
+                      <TableHead className="h-7 text-[10px]">Equipment</TableHead>
+                      <TableHead className="h-7 text-[10px]">No.</TableHead>
+                      <TableHead className="h-7 text-[10px] text-right">Hours</TableHead>
+                      <TableHead className="h-7 text-[10px] text-right">Fuel</TableHead>
+                      <TableHead className="h-7 w-8"></TableHead>
+                    </TableRow></TableHeader>
+                    <TableBody>
+                      {equipmentRows.map((r, i) => (
+                        <TableRow key={i}>
+                          <TableCell className="py-1">{i + 1}</TableCell>
+                          <TableCell className="py-1 font-medium">{r.equipment_name}</TableCell>
+                          <TableCell className="py-1 font-mono text-muted-foreground">{r.equipment_no || '—'}</TableCell>
+                          <TableCell className="py-1 text-right">{r.total_used_hours}h</TableCell>
+                          <TableCell className="py-1 text-right">{r.fuel_added > 0 ? `${r.fuel_added} unit` : '—'}</TableCell>
+                          <TableCell className="py-1"><button type="button" onClick={() => setEquipmentRows(p => p.filter((_, j) => j !== i))} className="text-red-400 hover:text-red-600">×</button></TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+              <div className="grid grid-cols-4 gap-2 items-end">
+                <div className="col-span-2 space-y-1"><Label className="text-[10px]">Equipment</Label>
+                  <Select value={eqSelId} onValueChange={setEqSelId}>
+                    <SelectTrigger className="h-7 text-xs rounded-sm"><SelectValue placeholder="Select equipment" /></SelectTrigger>
+                    <SelectContent>{availableEquipment.filter(e => !equipmentRows.find(r => r.inventory_id === e.id)).map(e => <SelectItem key={e.id} value={e.id}>{e.item_name}{e.serial_number ? ` (${e.serial_number})` : ''}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1"><Label className="text-[10px]">Hours *</Label><Input type="number" min="0" step="0.5" className="h-7 text-xs rounded-sm" value={eqHours} onChange={e => setEqHours(e.target.value)} /></div>
+                <div className="flex gap-1 items-end">
+                  <div className="flex-1 space-y-1"><Label className="text-[10px]">Fuel</Label><Input type="number" min="0" className="h-7 text-xs rounded-sm" value={eqFuel} onChange={e => setEqFuel(e.target.value)} /></div>
+                  <Button type="button" variant="outline" className="h-7 px-2 rounded-sm" disabled={!eqSelId || !eqHours} onClick={() => {
+                    const eq = availableEquipment.find(e => e.id === eqSelId);
+                    if (!eq) return;
+                    setEquipmentRows(p => [...p, { inventory_id: eq.id, equipment_name: eq.item_name, equipment_no: eq.serial_number || '', total_used_hours: parseFloat(eqHours), fuel_added: parseFloat(eqFuel) || 0 }]);
+                    setEqSelId(''); setEqHours(''); setEqFuel('0');
+                  }}><Plus className="w-3.5 h-3.5" /></Button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Section 5: Next Day Requirement ── */}
+          <DprSectionHeader title="Next Day Requirement" icon={Calendar} isOpen={openSections.nextDay} onToggle={() => toggleSection('nextDay')} count={nextDayMaterialRows.length + nextDayEquipmentRows.length} />
+          {openSections.nextDay && (
+            <div className="space-y-3 px-1">
+              <div className="space-y-2">
+                <Label className="text-[10px] font-semibold uppercase text-muted-foreground">Material Requests</Label>
+                {nextDayMaterialRows.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {nextDayMaterialRows.map((r, i) => (
+                      <Badge key={i} variant="outline" className="text-xs gap-1 rounded-sm">{r.item_name} × {r.qty_needed} {r.unit}<button type="button" onClick={() => setNextDayMaterialRows(p => p.filter((_, j) => j !== i))} className="ml-1 text-red-400 hover:text-red-600">×</button></Badge>
+                    ))}
+                  </div>
+                )}
+                <div className="grid grid-cols-4 gap-2 items-end">
+                  <div className="space-y-1"><Label className="text-[10px]">Material</Label><Input className="h-7 text-xs rounded-sm" value={ndMatName} onChange={e => setNdMatName(e.target.value)} /></div>
+                  <div className="space-y-1"><Label className="text-[10px]">Unit</Label>
+                    <Select value={ndMatUnit} onValueChange={setNdMatUnit}><SelectTrigger className="h-7 text-xs rounded-sm"><SelectValue placeholder="Unit" /></SelectTrigger><SelectContent>{UNIT_OPTIONS.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent></Select>
+                  </div>
+                  <div className="space-y-1"><Label className="text-[10px]">Qty</Label><Input type="number" min="0" className="h-7 text-xs rounded-sm" value={ndMatQty} onChange={e => setNdMatQty(e.target.value)} /></div>
+                  <Button type="button" variant="outline" className="h-7 rounded-sm text-xs" disabled={!ndMatName} onClick={() => {
+                    setNextDayMaterialRows(p => [...p, { item_name: ndMatName, unit: ndMatUnit, qty_needed: parseFloat(ndMatQty) || 0 }]);
+                    setNdMatName(''); setNdMatUnit(''); setNdMatQty('');
+                  }}><Plus className="w-3.5 h-3.5" /></Button>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-[10px] font-semibold uppercase text-muted-foreground">Equipment Requests</Label>
+                {nextDayEquipmentRows.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {nextDayEquipmentRows.map((r, i) => (
+                      <Badge key={i} variant="outline" className="text-xs gap-1 rounded-sm">{r.equipment_name}{r.note ? ` — ${r.note}` : ''}<button type="button" onClick={() => setNextDayEquipmentRows(p => p.filter((_, j) => j !== i))} className="ml-1 text-red-400 hover:text-red-600">×</button></Badge>
+                    ))}
+                  </div>
+                )}
+                <div className="grid grid-cols-3 gap-2 items-end">
+                  <div className="space-y-1"><Label className="text-[10px]">Equipment</Label><Input className="h-7 text-xs rounded-sm" value={ndEqName} onChange={e => setNdEqName(e.target.value)} /></div>
+                  <div className="space-y-1"><Label className="text-[10px]">Note</Label><Input className="h-7 text-xs rounded-sm" value={ndEqNote} onChange={e => setNdEqNote(e.target.value)} /></div>
+                  <Button type="button" variant="outline" className="h-7 rounded-sm text-xs" disabled={!ndEqName} onClick={() => {
+                    setNextDayEquipmentRows(p => [...p, { equipment_name: ndEqName, note: ndEqNote }]);
+                    setNdEqName(''); setNdEqNote('');
+                  }}><Plus className="w-3.5 h-3.5" /></Button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Section 6: Contractor Work Summary ── */}
+          <DprSectionHeader title="Subcon Progress Summary" icon={Briefcase} isOpen={openSections.contractorWork} onToggle={() => toggleSection('contractorWork')} count={contractorWorkRows.length} />
+          {openSections.contractorWork && (
+            <div className="space-y-2 px-1">
+              {contractorWorkRows.length > 0 && (
+                <div className="overflow-x-auto border rounded-sm">
+                  <Table className="text-xs">
+                    <TableHeader><TableRow className="bg-muted/30">
+                      <TableHead className="h-7 text-[10px]">#</TableHead>
+                      <TableHead className="h-7 text-[10px]">Contractor</TableHead>
+                      <TableHead className="h-7 text-[10px]">Title</TableHead>
+                      <TableHead className="h-7 text-[10px]">Progress</TableHead>
+                      <TableHead className="h-7 text-[10px]">Overall</TableHead>
+                      <TableHead className="h-7 w-8"></TableHead>
+                    </TableRow></TableHeader>
+                    <TableBody>
+                      {contractorWorkRows.map((r, i) => (
+                        <TableRow key={i}>
+                          <TableCell className="py-1">{i + 1}</TableCell>
+                          <TableCell className="py-1 font-medium">{r.contractor_name}</TableCell>
+                          <TableCell className="py-1">{r.title}</TableCell>
+                          <TableCell className="py-1">{r.progress}</TableCell>
+                          <TableCell className="py-1">{r.overall_progress}</TableCell>
+                          <TableCell className="py-1"><button type="button" onClick={() => setContractorWorkRows(p => p.filter((_, j) => j !== i))} className="text-red-400 hover:text-red-600">×</button></TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+              <div className="grid grid-cols-6 gap-1.5 items-end">
+                <div className="space-y-1"><Label className="text-[10px]">Contractor</Label>
+                  <Select value={cwContractorId} onValueChange={setCwContractorId}>
+                    <SelectTrigger className="h-7 text-xs rounded-sm"><SelectValue placeholder="Select" /></SelectTrigger>
+                    <SelectContent>{availableContractors.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1"><Label className="text-[10px]">Work Title</Label><Input className="h-7 text-xs rounded-sm" value={cwTitle} onChange={e => setCwTitle(e.target.value)} /></div>
+                <div className="space-y-1"><Label className="text-[10px]">Progress</Label><Input type="number" min="0" className="h-7 text-xs rounded-sm" value={cwProgress} onChange={e => setCwProgress(e.target.value)} /></div>
+                <div className="space-y-1"><Label className="text-[10px]">Unit</Label>
+                  <Select value={cwProgressUnit} onValueChange={setCwProgressUnit}><SelectTrigger className="h-7 text-xs rounded-sm"><SelectValue placeholder="Unit" /></SelectTrigger><SelectContent>{UNIT_OPTIONS.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent></Select>
+                </div>
+                <div className="space-y-1"><Label className="text-[10px]">Overall</Label><Input className="h-7 text-xs rounded-sm" value={cwOverall} onChange={e => setCwOverall(e.target.value)} /></div>
+                <Button type="button" variant="outline" className="h-7 rounded-sm text-xs" disabled={!cwContractorId || !cwTitle} onClick={() => {
+                  const con = availableContractors.find(c => c.id === cwContractorId);
+                  const progressDisplay = cwProgress ? `${cwProgress} ${cwProgressUnit}`.trim() : '';
+                  setContractorWorkRows(p => [...p, { contractor_id: cwContractorId, contractor_name: con?.name || '', title: cwTitle, progress: progressDisplay, overall_progress: cwOverall }]);
+                  setCwContractorId(''); setCwTitle(''); setCwProgress(''); setCwProgressUnit(''); setCwOverall('');
+                }}><Plus className="w-3.5 h-3.5" /></Button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Section 7: Site Images ── */}
+          <DprSectionHeader title="Site Photos" icon={Camera} isOpen={openSections.images} onToggle={() => toggleSection('images')} count={uploadedDocs.length} />
+          {openSections.images && (
+            <div className="space-y-2 px-1">
+              <label className="flex flex-col items-center justify-center border-2 border-dashed border-muted-foreground/30 rounded-sm py-5 cursor-pointer hover:bg-muted/20 transition-colors">
+                <Upload className="w-6 h-6 text-muted-foreground mb-1" />
+                <span className="text-xs text-muted-foreground">Click to upload images (JPG, PNG, WebP)</span>
+                <input type="file" accept=".jpg,.jpeg,.png,.webp" multiple className="hidden" disabled={uploading}
+                  onChange={e => { handleImageUpload(Array.from(e.target.files || [])); e.target.value = ''; }} />
+              </label>
+              {uploading && <p className="text-xs text-muted-foreground flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Uploading...</p>}
+              {uploadedDocs.length > 0 && (
+                <div className="grid grid-cols-4 gap-2">
+                  {uploadedDocs.map(doc => (
+                    <div key={doc.id} className="relative group">
+                      <img src={doc.storage_type === 'cloudinary' ? doc.url : `${DPR_API_BASE}${doc.url}`} alt={doc.name} className="w-full aspect-square object-cover rounded-sm border" />
+                      <button type="button" onClick={() => setUploadedDocs(p => p.filter(d => d.id !== doc.id))}
+                        className="absolute top-1 right-1 bg-black/50 rounded-full p-0.5 text-white opacity-0 group-hover:opacity-100 transition-opacity"><X className="w-3 h-3" /></button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Issues + Notes */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5"><Label className="text-xs">Issues / Delays</Label><Input value={form.issues} onChange={e => setForm(f => ({ ...f, issues: e.target.value }))} className="rounded-sm text-sm" /></div>
+            <div className="space-y-1.5"><Label className="text-xs">Notes</Label><Input value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} className="rounded-sm text-sm" /></div>
           </div>
 
-          <div className="space-y-1.5">
-            <Label className="text-xs">Work Done *</Label>
-            <Textarea value={form.work_done} onChange={e => setForm(f => ({ ...f, work_done: e.target.value }))} required placeholder="Describe work completed today..." className="rounded-sm text-sm" rows={3} data-testid="dpr-work-input" />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-xs">Issues / Delays</Label>
-              <Input value={form.issues} onChange={e => setForm(f => ({ ...f, issues: e.target.value }))} placeholder="Any problems encountered..." className="rounded-sm text-sm" data-testid="dpr-issues-input" />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Notes</Label>
-              <Input value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="Additional notes..." className="rounded-sm text-sm" />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-xs">Completed Area Today (sq.ft)</Label>
-              <Input type="number" min="0" step="0.01" value={form.sqft_completed} onChange={e => setForm(f => ({ ...f, sqft_completed: e.target.value }))} placeholder="e.g. 250" className="rounded-sm text-sm" />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Tomorrow's Schedule</Label>
-              <Input value={form.tomorrow_schedule} onChange={e => setForm(f => ({ ...f, tomorrow_schedule: e.target.value }))} placeholder="Plan for tomorrow..." className="rounded-sm text-sm" />
-            </div>
-          </div>
-          <div className="flex justify-end gap-2 pt-2">
+          <div className="flex justify-end gap-2 pt-2 border-t">
             <Button type="button" variant="outline" onClick={onClose} className="rounded-sm">Cancel</Button>
-            <Button type="submit" className="action-btn-accent rounded-sm" data-testid="submit-dpr-btn">Save DPR</Button>
+            <Button type="submit" className="action-btn-accent rounded-sm" disabled={submitting} data-testid="submit-dpr-btn">
+              {submitting ? <><Loader2 className="w-4 h-4 animate-spin mr-1" />Saving...</> : 'Save DPR'}
+            </Button>
           </div>
         </form>
       </DialogContent>
@@ -999,14 +1975,28 @@ function getFileUrl(doc) {
   return `${API_BASE}${doc.file_url}`;
 }
 
+const DEFAULT_DOC_CATEGORIES = [
+  { value: 'plan', label: 'Plan / Drawing' },
+  { value: 'photo', label: 'Site Photo' },
+  { value: 'report', label: 'Report' },
+  { value: 'approval', label: 'Approval Document' },
+  { value: 'invoice', label: 'Invoice' },
+  { value: 'general', label: 'General' },
+];
+
 function UploadDialog({ open, onClose, onSubmit }) {
   const [file, setFile] = useState(null);
   const [category, setCategory] = useState('plan');
   const [description, setDescription] = useState('');
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [categories, setCategories] = useState(DEFAULT_DOC_CATEGORIES);
+  const [newCatMode, setNewCatMode] = useState(false);
+  const [newCatValue, setNewCatValue] = useState('');
 
-  useEffect(() => { if (open) { setFile(null); setCategory('plan'); setDescription(''); } }, [open]);
+  useEffect(() => {
+    if (open) { setFile(null); setCategory('plan'); setDescription(''); setNewCatMode(false); setNewCatValue(''); }
+  }, [open]);
 
   const handleFile = (f) => {
     const maxSize = 20 * 1024 * 1024;
@@ -1056,17 +2046,58 @@ function UploadDialog({ open, onClose, onSubmit }) {
 
           <div className="space-y-1.5">
             <Label className="text-xs">Category</Label>
-            <Select value={category} onValueChange={setCategory}>
-              <SelectTrigger className="rounded-sm text-sm" data-testid="doc-category-select"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="plan">Plan / Drawing</SelectItem>
-                <SelectItem value="photo">Site Photo</SelectItem>
-                <SelectItem value="report">Report</SelectItem>
-                <SelectItem value="approval">Approval Document</SelectItem>
-                <SelectItem value="invoice">Invoice</SelectItem>
-                <SelectItem value="general">General</SelectItem>
-              </SelectContent>
-            </Select>
+            {newCatMode ? (
+              <div className="flex gap-2">
+                <Input
+                  autoFocus
+                  value={newCatValue}
+                  onChange={e => setNewCatValue(e.target.value)}
+                  placeholder="Enter category name..."
+                  className="rounded-sm text-sm flex-1"
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      const trimmed = newCatValue.trim();
+                      if (!trimmed) return;
+                      const val = trimmed.toLowerCase().replace(/\s+/g, '_');
+                      if (!categories.find(c => c.value === val)) {
+                        setCategories(prev => [...prev, { value: val, label: trimmed }]);
+                      }
+                      setCategory(val);
+                      setNewCatMode(false);
+                      setNewCatValue('');
+                    }
+                    if (e.key === 'Escape') { setNewCatMode(false); setNewCatValue(''); }
+                  }}
+                />
+                <Button type="button" size="sm" className="action-btn action-btn-accent rounded-sm shrink-0" onClick={() => {
+                  const trimmed = newCatValue.trim();
+                  if (!trimmed) return;
+                  const val = trimmed.toLowerCase().replace(/\s+/g, '_');
+                  if (!categories.find(c => c.value === val)) {
+                    setCategories(prev => [...prev, { value: val, label: trimmed }]);
+                  }
+                  setCategory(val);
+                  setNewCatMode(false);
+                  setNewCatValue('');
+                }}>Add</Button>
+                <Button type="button" size="sm" variant="ghost" className="rounded-sm shrink-0" onClick={() => { setNewCatMode(false); setNewCatValue(''); }}>
+                  <X className="w-3.5 h-3.5" />
+                </Button>
+              </div>
+            ) : (
+              <Select value={category} onValueChange={v => { if (v === '__new__') { setNewCatMode(true); } else { setCategory(v); } }}>
+                <SelectTrigger className="rounded-sm text-sm" data-testid="doc-category-select"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {categories.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
+                  <div className="border-t mt-1 pt-1">
+                    <SelectItem value="__new__" className="text-blue-600 font-medium">
+                      + Create new category
+                    </SelectItem>
+                  </div>
+                </SelectContent>
+              </Select>
+            )}
           </div>
 
           <div className="space-y-1.5">
@@ -1102,7 +2133,7 @@ function DocPreview({ doc, onBack, onDelete, canEdit }) {
           <a href={fileUrl} target="_blank" rel="noopener noreferrer" download={doc.filename}>
             <Button variant="outline" size="sm" className="rounded-sm gap-1" data-testid="download-doc-btn"><FileDown className="w-4 h-4" />Download</Button>
           </a>
-          {hasPermission('projects', 'edit') && (
+          {canEdit && (
             <Button variant="outline" size="sm" className="rounded-sm gap-1 text-red-500 hover:text-red-700" onClick={() => onDelete(doc.id)} data-testid="delete-doc-preview-btn"><Trash2 className="w-4 h-4" />Delete</Button>
           )}
         </div>
