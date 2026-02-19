@@ -15,7 +15,7 @@ import { DeleteConfirmationDialog } from '../components/DeleteConfirmationDialog
 
 
 export default function Settings() {
-  const { user, setUser, api } = useAuth();
+  const { user, setUser, api, hasPermission } = useAuth();
   const fileInputRef = useRef(null);
 
   // Profile form state
@@ -358,18 +358,20 @@ export default function Settings() {
             <Database className="w-4 h-4" />
             System
           </TabsTrigger> */}
-          <TabsTrigger value="gst" className="rounded-sm gap-2" data-testid="gst-integration-tab">
-            <FileText className="w-4 h-4" />
-            GST Integration
-          </TabsTrigger>
-          <TabsTrigger value="cloudinary" className="rounded-sm gap-2" data-testid="cloudinary-tab">
-            <Cloud className="w-4 h-4" />
-            Cloudinary
-          </TabsTrigger>
-          <TabsTrigger value="smtp" className="rounded-sm gap-2" data-testid="smtp-tab">
-            <Mail className="w-4 h-4" />
-            SMTP
-          </TabsTrigger>
+          {hasPermission('settings', 'edit') && <>
+            <TabsTrigger value="gst" className="rounded-sm gap-2" data-testid="gst-integration-tab">
+              <FileText className="w-4 h-4" />
+              GST Integration
+            </TabsTrigger>
+            <TabsTrigger value="cloudinary" className="rounded-sm gap-2" data-testid="cloudinary-tab">
+              <Cloud className="w-4 h-4" />
+              Cloudinary
+            </TabsTrigger>
+            <TabsTrigger value="smtp" className="rounded-sm gap-2" data-testid="smtp-tab">
+              <Mail className="w-4 h-4" />
+              SMTP
+            </TabsTrigger>
+          </>}
         </TabsList>
 
         <TabsContent value="profile">

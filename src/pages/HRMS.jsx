@@ -294,7 +294,7 @@ export default function HRMS() {
             {/* ---- Employee List ---- */}
             <TabsContent value="list" className="space-y-4">
               {employeeDetail ? (
-                <EmployeeDetailView detail={employeeDetail} onBack={() => setEmployeeDetail(null)} onEdit={editEmployee} onDeactivate={deactivateEmployee} />
+                <EmployeeDetailView detail={employeeDetail} onBack={() => setEmployeeDetail(null)} onEdit={editEmployee} onDeactivate={deactivateEmployee} canEdit={hasPermission('hrms', 'edit')} canDelete={hasPermission('hrms', 'delete')} />
               ) : (
                 <>
                   <div className="flex flex-wrap gap-3 justify-between">
@@ -481,7 +481,7 @@ export default function HRMS() {
                     <TableCell className="text-right text-sm font-bold">{formatCurrency(p.net_salary)}</TableCell>
                     <TableCell><Badge className={`${payStatusColors[p.status]} text-xs rounded-sm capitalize`}>{p.status}</Badge></TableCell>
                     <TableCell className="text-right">
-                      {payStatusFlow[p.status] && (
+                      {payStatusFlow[p.status] && hasPermission('hrms', 'edit') && (
                         <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-blue-600" onClick={() => handlePayrollStatus(p.id, payStatusFlow[p.status])} data-testid={`advance-payroll-${p.id}`}>
                           {p.status === 'pending' ? 'Process' : 'Mark Paid'}
                         </Button>
@@ -1149,15 +1149,15 @@ function RolesManager({ api, onRolesChange }) {
   );
 }
 
-function EmployeeDetailView({ detail, onBack, onEdit, onDeactivate }) {
+function EmployeeDetailView({ detail, onBack, onEdit, onDeactivate, canEdit, canDelete }) {
   const { employee: emp, attendance: att, payrolls: pays, stats } = detail;
   return (
     <div className="space-y-4" data-testid="employee-detail-view">
       <div className="flex items-center justify-between">
         <Button variant="ghost" size="sm" onClick={onBack} className="gap-1" data-testid="back-to-employees-btn"><ArrowLeft className="w-4 h-4" />Back</Button>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" className="rounded-sm gap-1" onClick={() => onEdit(emp)} data-testid="edit-employee-btn"><Edit3 className="w-4 h-4" />Edit</Button>
-          <Button variant="outline" size="sm" className="rounded-sm gap-1 text-red-500" onClick={() => onDeactivate(emp.id)} data-testid="deactivate-employee-btn"><XCircle className="w-4 h-4" />Deactivate</Button>
+          {canEdit && <Button variant="outline" size="sm" className="rounded-sm gap-1" onClick={() => onEdit(emp)} data-testid="edit-employee-btn"><Edit3 className="w-4 h-4" />Edit</Button>}
+          {canDelete && <Button variant="outline" size="sm" className="rounded-sm gap-1 text-red-500" onClick={() => onDeactivate(emp.id)} data-testid="deactivate-employee-btn"><XCircle className="w-4 h-4" />Deactivate</Button>}
         </div>
       </div>
       {/* Profile + Stats */}

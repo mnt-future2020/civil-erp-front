@@ -309,7 +309,7 @@ export default function Projects() {
             <Card
               key={project.id}
               className="rounded-sm card-hover cursor-pointer group"
-              onClick={() => navigate(`/projects/${project.id}`)}
+              onClick={() => navigate(`/projects/${project.code}`)}
               data-testid={`project-card-${project.id}`}
             >
               <CardHeader className="pb-2">
@@ -325,9 +325,9 @@ export default function Projects() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={(e) => { e.stopPropagation(); navigate(`/projects/${project.id}`); }}>View Details</DropdownMenuItem>
-                      <DropdownMenuItem onClick={(e) => { e.stopPropagation(); navigate(`/projects/${project.id}?action=edit`); }}>Edit Project</DropdownMenuItem>
-                      <DropdownMenuItem onClick={(e) => { e.stopPropagation(); navigate(`/projects/${project.id}?tab=tasks&action=add-task`); }}>Add Task</DropdownMenuItem>
+                      <DropdownMenuItem onClick={(e) => { e.stopPropagation(); navigate(`/projects/${project.code}`); }}>View Details</DropdownMenuItem>
+                      <DropdownMenuItem onClick={(e) => { e.stopPropagation(); navigate(`/projects/${project.code}?action=edit`); }}>Edit Project</DropdownMenuItem>
+                      <DropdownMenuItem onClick={(e) => { e.stopPropagation(); navigate(`/projects/${project.code}?tab=tasks&action=add-task`); }}>Add Task</DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>

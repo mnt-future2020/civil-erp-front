@@ -9,13 +9,14 @@ import Projects from "./pages/Projects";
 import Financial from "./pages/Financial";
 import Procurement from "./pages/Procurement";
 import HRMS from "./pages/HRMS";
-import Compliance from "./pages/Compliance";
+// import Compliance from "./pages/Compliance";
 import Reports from "./pages/Reports";
 import AIAssistant from "./pages/AIAssistant";
 import Settings from "./pages/Settings";
-import EInvoicing from "./pages/EInvoicing";
+// import EInvoicing from "./pages/EInvoicing";
 import ProjectDetail from "./pages/ProjectDetail";
 import Inventory from "./pages/Inventory";
+import AuditLogs from "./pages/AuditLogs";
 
 // Protected Route wrapper
 const ProtectedRoute = ({ children, module }) => {
@@ -127,14 +128,14 @@ function AppRoutes() {
         }
       />
 
-      <Route
+      {/* <Route
         path="/compliance"
         element={
           <ProtectedRoute module="compliance">
             <Compliance />
           </ProtectedRoute>
         }
-      />
+      /> */}
 
       <Route
         path="/reports"
@@ -163,20 +164,29 @@ function AppRoutes() {
         }
       />
 
-      <Route
+      {/* <Route
         path="/einvoicing"
         element={
           <ProtectedRoute module="einvoicing">
             <EInvoicing />
           </ProtectedRoute>
         }
-      />
+      /> */}
 
       <Route
         path="/inventory"
         element={
           <ProtectedRoute module="inventory">
             <Inventory />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/audit-logs"
+        element={
+          <ProtectedRoute module="settings">
+            <AuditLogs />
           </ProtectedRoute>
         }
       />

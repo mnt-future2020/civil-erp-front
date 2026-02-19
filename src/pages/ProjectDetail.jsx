@@ -85,15 +85,19 @@ export default function ProjectDetail() {
 
   const fetchAll = useCallback(async () => {
     try {
-      const [projRes, summRes, tasksRes, dprsRes, billsRes, docsRes] = await Promise.all([
-        api.get(`/projects/${id}`),
-        api.get(`/projects/${id}/summary`),
-        api.get(`/tasks?project_id=${id}`),
-        api.get(`/dpr?project_id=${id}`),
-        api.get(`/billing?project_id=${id}`),
-        api.get(`/documents?project_id=${id}&exclude_category=dpr`)
+      // Fetch project first (supports both UUID and project code in URL)
+      const projRes = await api.get(`/projects/${id}`);
+      const proj = projRes.data;
+      setProject(proj);
+      const pid = proj.id; // real UUID for subsequent queries
+
+      const [summRes, tasksRes, dprsRes, billsRes, docsRes] = await Promise.all([
+        api.get(`/projects/${pid}/summary`),
+        api.get(`/tasks?project_id=${pid}`),
+        api.get(`/dpr?project_id=${pid}`),
+        api.get(`/billing?project_id=${pid}`),
+        api.get(`/documents?project_id=${pid}&exclude_category=dpr`)
       ]);
-      setProject(projRes.data);
       setSummary(summRes.data);
       setTasks(tasksRes.data);
       setDprs(dprsRes.data);
@@ -122,7 +126,7 @@ export default function ProjectDetail() {
   const handleSaveProject = async () => {
     setSaving(true);
     try {
-      await api.put(`/projects/${id}`, {
+      await api.put(`/projects/${project.id}`, {
         name: editForm.name, code: editForm.code, description: editForm.description || '',
         client_name: editForm.client_name, location: editForm.location,
         start_date: editForm.start_date, expected_end_date: editForm.expected_end_date,
@@ -137,7 +141,7 @@ export default function ProjectDetail() {
 
   const handleStatusChange = async (status) => {
     try {
-      await api.patch(`/projects/${id}/status`, { status });
+      await api.patch(`/projects/${project.id}/status`, { status });
       toast.success(`Status: ${projectStatusLabels[status]}`);
       fetchAll();
     } catch { toast.error('Failed to update status'); }
@@ -147,7 +151,7 @@ export default function ProjectDetail() {
     try {
       const payload = {};
       if (cost) payload.actual_cost = parseFloat(cost);
-      await api.patch(`/projects/${id}/progress`, payload);
+      await api.patch(`/projects/${project.id}/progress`, payload);
       toast.success('Actual cost updated');
       setProgressDialogOpen(false);
       fetchAll();
@@ -158,10 +162,10 @@ export default function ProjectDetail() {
   const handleTaskSubmit = async (taskData) => {
     try {
       if (editingTask) {
-        await api.put(`/tasks/${editingTask.id}`, { ...taskData, project_id: id });
+        await api.put(`/tasks/${editingTask.id}`, { ...taskData, project_id: project.id });
         toast.success('Task updated');
       } else {
-        await api.post('/tasks', { ...taskData, project_id: id });
+        await api.post('/tasks', { ...taskData, project_id: project.id });
         toast.success('Task created');
       }
       setTaskDialogOpen(false);
@@ -193,7 +197,7 @@ export default function ProjectDetail() {
   // --- DPR ---
   const handleDprSubmit = async (dprData) => {
     try {
-      await api.post('/dpr', { ...dprData, project_id: id });
+      await api.post('/dpr', { ...dprData, project_id: project.id });
       toast.success('DPR created');
       setDprDialogOpen(false);
       fetchAll();
@@ -204,7 +208,7 @@ export default function ProjectDetail() {
   const handleDocUpload = async (file, category, description) => {
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('project_id', id);
+    formData.append('project_id', project.id);
     formData.append('category', category);
     formData.append('description', description);
     try {

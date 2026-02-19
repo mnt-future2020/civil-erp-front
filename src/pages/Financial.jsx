@@ -28,7 +28,7 @@ const billStatusColors = {
 };
 
 export default function Financial() {
-  const { api } = useAuth();
+  const { api, hasPermission } = useAuth();
   const [loading, setLoading] = useState(true);
   const [billings, setBillings] = useState([]);
   const [cvrs, setCvrs] = useState([]);
@@ -215,7 +215,7 @@ export default function Financial() {
                 <SelectItem value="paid">Paid</SelectItem>
               </SelectContent>
             </Select>
-            <Dialog open={isBillingDialogOpen} onOpenChange={setIsBillingDialogOpen}>
+            {hasPermission('financial', 'create') && <Dialog open={isBillingDialogOpen} onOpenChange={setIsBillingDialogOpen}>
               <DialogTrigger asChild>
                 <Button className="action-btn action-btn-accent" data-testid="create-billing-btn"><Plus className="w-4 h-4" />New Bill</Button>
               </DialogTrigger>
@@ -269,7 +269,7 @@ export default function Financial() {
                   </div>
                 </form>
               </DialogContent>
-            </Dialog>
+            </Dialog>}
           </div>
 
           {selectedBill ? (
@@ -279,6 +279,8 @@ export default function Financial() {
               onBack={() => setSelectedBill(null)}
               onStatusChange={handleBillStatusChange}
               onDelete={(id) => { setBillToDelete(id); setDeleteBillDialogOpen(true); }}
+              canEdit={hasPermission('financial', 'edit')}
+              canDelete={hasPermission('financial', 'delete')}
             />
           ) : (
             <Card className="rounded-sm">
@@ -316,7 +318,7 @@ export default function Financial() {
                       <TableCell className="text-right">
                         <div className="flex gap-1 justify-end">
                           <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setSelectedBill(bill)} data-testid={`view-bill-${bill.id}`}><Eye className="w-3.5 h-3.5" /></Button>
-                          {billStatusFlow[bill.status] && (
+                          {billStatusFlow[bill.status] && hasPermission('financial', 'edit') && (
                             <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-blue-600" onClick={() => handleBillStatusChange(bill.id, billStatusFlow[bill.status])} data-testid={`advance-bill-${bill.id}`}>
                               {bill.status === 'pending' ? 'Approve' : 'Mark Paid'}
                             </Button>
@@ -335,7 +337,7 @@ export default function Financial() {
         <TabsContent value="cvr" className="space-y-4">
           <div className="flex justify-between">
             <div className="text-sm text-muted-foreground">{filteredCvrs.length} CVR records</div>
-            <Dialog open={isCvrDialogOpen} onOpenChange={setIsCvrDialogOpen}>
+            {hasPermission('financial', 'create') && <Dialog open={isCvrDialogOpen} onOpenChange={setIsCvrDialogOpen}>
               <DialogTrigger asChild>
                 <Button className="action-btn action-btn-accent" data-testid="create-cvr-btn"><Plus className="w-4 h-4" />New CVR</Button>
               </DialogTrigger>
@@ -369,7 +371,7 @@ export default function Financial() {
                   </div>
                 </form>
               </DialogContent>
-            </Dialog>
+            </Dialog>}
           </div>
 
           {filteredCvrs.length === 0 ? (
@@ -393,9 +395,9 @@ export default function Financial() {
                             {cvr.variance >= 0 ? <ArrowUpRight className="w-4 h-4 inline" /> : <ArrowDownRight className="w-4 h-4 inline" />}
                             {formatCurrency(Math.abs(cvr.variance))}
                           </span>
-                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-400 hover:text-red-600" onClick={() => { setCvrToDelete(cvr.id); setDeleteCvrDialogOpen(true); }} data-testid={`delete-cvr-${cvr.id}`}>
+                          {hasPermission('financial', 'delete') && <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-400 hover:text-red-600" onClick={() => { setCvrToDelete(cvr.id); setDeleteCvrDialogOpen(true); }} data-testid={`delete-cvr-${cvr.id}`}>
                             <Trash2 className="w-3.5 h-3.5" />
-                          </Button>
+                          </Button>}
                         </div>
                       </div>
                       {/* Values Grid */}
@@ -531,7 +533,7 @@ function KpiCard({ label, value, icon: Icon, color, testId }) {
   );
 }
 
-function BillDetail({ bill, projectName, onBack, onStatusChange, onDelete }) {
+function BillDetail({ bill, projectName, onBack, onStatusChange, onDelete, canEdit, canDelete }) {
   const nextStatus = billStatusFlow[bill.status];
   return (
     <div className="space-y-4" data-testid="bill-detail-view">
@@ -579,7 +581,7 @@ function BillDetail({ bill, projectName, onBack, onStatusChange, onDelete }) {
           <Card className="rounded-sm">
             <CardHeader className="pb-2"><CardTitle className="text-sm uppercase">Actions</CardTitle></CardHeader>
             <CardContent className="space-y-2">
-              {nextStatus && (
+              {nextStatus && canEdit && (
                 <Button className="w-full rounded-sm action-btn-accent" onClick={() => onStatusChange(bill.id, nextStatus)} data-testid="bill-advance-status-btn">
                   <CheckCircle2 className="w-4 h-4 mr-1" />
                   {bill.status === 'pending' ? 'Approve Bill' : 'Mark as Paid'}
@@ -588,9 +590,9 @@ function BillDetail({ bill, projectName, onBack, onStatusChange, onDelete }) {
               {bill.status === 'paid' && (
                 <div className="text-center py-2"><CheckCircle2 className="w-6 h-6 text-emerald-500 mx-auto mb-1" /><p className="text-sm font-medium text-emerald-600">Payment Complete</p></div>
               )}
-              <Button variant="outline" className="w-full rounded-sm text-red-500 hover:text-red-700" onClick={() => onDelete(bill.id)} data-testid="delete-bill-btn">
+              {canDelete && <Button variant="outline" className="w-full rounded-sm text-red-500 hover:text-red-700" onClick={() => onDelete(bill.id)} data-testid="delete-bill-btn">
                 <Trash2 className="w-4 h-4 mr-1" /> Delete Bill
-              </Button>
+              </Button>}
             </CardContent>
           </Card>
 

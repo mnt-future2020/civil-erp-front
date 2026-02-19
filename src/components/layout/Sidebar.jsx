@@ -14,7 +14,8 @@ import {
   LogOut,
   BarChart3,
   Receipt,
-  Package
+  Package,
+  ScrollText
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { cn } from '../../lib/utils';
@@ -31,15 +32,17 @@ const navItems = [
   { path: '/reports',      icon: BarChart3,        label: 'Reports',      module: 'reports' },
   { path: '/ai-assistant', icon: Bot,              label: 'AI Assistant', module: 'ai_assistant' },
   { path: '/settings',     icon: Settings,         label: 'Settings',     module: 'settings' },
+  { path: '/audit-logs',   icon: ScrollText,       label: 'Audit Logs',   module: 'settings', adminOnly: true },
 ];
 
 export const Sidebar = ({ isOpen, onClose }) => {
   const location = useLocation();
   const { user, logout, canViewModule } = useAuth();
 
-  const filteredNavItems = navItems.filter(item =>
-    canViewModule(item.module)
-  );
+  const filteredNavItems = navItems.filter(item => {
+    if (item.adminOnly && user?.role !== 'admin') return false;
+    return canViewModule(item.module);
+  });
 
   return (
     <>
